@@ -1761,6 +1761,29 @@
           image.alt = storedFilename;
           sourceViewer.appendChild(image);
           sourceViewer.hidden = false;
+        } else if (kind === "table") {
+          const frame = document.createElement("iframe");
+          frame.className = "source-viewer-frame";
+          frame.src = viewerSourceUrl;
+          frame.title = `Table Viewer ${storedFilename}`;
+          sourceViewer.appendChild(frame);
+          sourceViewer.hidden = false;
+        } else if (kind === "text" || kind === "email") {
+          const textBlock = document.createElement("pre");
+          textBlock.className = "source-viewer-text";
+          textBlock.textContent = "Loading text preview...";
+          sourceViewer.appendChild(textBlock);
+          sourceViewer.hidden = false;
+
+          fetchApi(`/documents/source-file/${encodedFilename}?viewer=1`)
+            .then((response) => response.text())
+            .then((text) => {
+              textBlock.textContent = text || "No text content available.";
+            })
+            .catch(() => {
+              textBlock.textContent =
+                "Text preview could not be loaded. Use download to open the original file.";
+            });
         } else if (kind === "3d") {
           const cachedFrame = threeViewerFrameCache.get(storedFilename);
           const frame = cachedFrame || document.createElement("iframe");
@@ -1782,7 +1805,7 @@
         } else {
           sourceViewerStatus.hidden = false;
           sourceViewerStatus.textContent =
-            "Original format cannot be displayed directly here (e.g., DOCX/TXT).";
+            "Original format cannot be displayed directly here (e.g., DOCX/PPTX).";
         }
 
         const chunkId = chunk?.chunk_id || "n/a";
