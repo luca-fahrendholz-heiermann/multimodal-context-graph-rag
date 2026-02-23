@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from email import policy
+from email.parser import BytesParser
+import html
 import importlib.metadata
 import importlib.util
 import mimetypes
@@ -19,6 +22,7 @@ from backend.ingestion import (
     UPLOAD_DIR,
     VIEWER_ARTIFACTS_DIR,
     _convert_3d_to_canonical_glb,
+    parse_structured_document,
 )
 
 
@@ -264,9 +268,347 @@ def _source_kind_for_extension(extension: str) -> str:
         return "pptx"
     if extension == ".txt":
         return "text"
+    if extension in {".xlsx", ".csv", ".tsv"}:
+        return "table"
+    if extension in {".eml", ".msg"}:
+        return "email"
+    if extension == ".xml":
+        return "xml"
+    if extension == ".dxf":
+        return "dxf"
     if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off"}:
         return "3d"
     return "binary"
+
+
+def _load_metadata_payload(stored_filename: str) -> dict:
+    metadata_path = METADATA_DIR / f"{stored_filename}.json"
+    if not metadata_path.exists():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> Path | None:
+    tables = parsed_payload.get("tables") if isinstance(parsed_payload, dict) else None
+    if not isinstance(tables, list) or not tables:
+        return None
+
+    sections: list[str] = []
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        sheet_name = html.escape(str(table.get("sheet_name") or "Sheet"))
+        header = table.get("header") if isinstance(table.get("header"), list) else []
+        rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+        header_html = "".join(
+            f"<th>{html.escape(str(cell or ''))}</th>" for cell in header
+        )
+        body_rows = []
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            row_html = "".join(
+                f"<td>{html.escape(str(cell or ''))}</td>" for cell in row
+            )
+            body_rows.append(f"<tr>{row_html}</tr>")
+        table_html = (
+            "<section>"
+            f"<h3>{sheet_name}</h3>"
+            "<div class='table-wrap'><table>"
+            f"<thead><tr>{header_html}</tr></thead>"
+            f"<tbody>{''.join(body_rows)}</tbody>"
+            "</table></div>"
+            "</section>"
+        )
+        sections.append(table_html)
+
+    if not sections:
+        return None
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.table-viewer.html"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text(
+        (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;padding:12px;}"
+            "h3{margin:8px 0 6px;font-size:14px;color:#9dc1ff;}"
+            "section{margin-bottom:14px;border:1px solid #27406a;border-radius:8px;padding:8px;background:#0a1636;}"
+            ".table-wrap{overflow:auto;}"
+            "table{width:100%;border-collapse:collapse;font-size:12px;}"
+            "th,td{border:1px solid #2f4a79;padding:6px;text-align:left;vertical-align:top;}"
+            "th{background:#12224f;position:sticky;top:0;}"
+            "</style></head><body>"
+            f"{''.join(sections)}"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
+
+
+def _load_table_payload(stored_filename: str, source_path: Path, metadata_payload: dict) -> dict:
+    parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
+    if parsed_artifact_path_raw:
+        parsed_artifact_path = Path(parsed_artifact_path_raw)
+        if parsed_artifact_path.exists():
+            try:
+                parsed_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
+                if isinstance(parsed_payload, dict):
+                    tables = parsed_payload.get("tables")
+                    if isinstance(tables, list) and tables:
+                        return parsed_payload
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    try:
+        parsed = parse_structured_document(
+            filename=stored_filename,
+            content_bytes=source_path.read_bytes(),
+            detected_mime_type=_mime_type_for_extension(source_path.suffix.lower()) or "",
+            magic_bytes_type=None,
+        )
+    except OSError:
+        return {}
+
+    return {
+        "tables": parsed.tables or [],
+        "object_structure": parsed.object_structure or {},
+    }
+
+
+def _build_email_viewer_artifact(stored_filename: str, source_path: Path, parsed_payload: dict) -> Path | None:
+    object_structure = parsed_payload.get("object_structure") if isinstance(parsed_payload, dict) else {}
+    headers = object_structure.get("headers") if isinstance(object_structure, dict) else {}
+    body_text = parsed_payload.get("text") if isinstance(parsed_payload, dict) else ""
+
+    if not isinstance(headers, dict) or not (body_text or "").strip():
+        try:
+            message = BytesParser(policy=policy.default).parsebytes(source_path.read_bytes())
+        except OSError:
+            return None
+        headers = {
+            "from": message.get("From") or "",
+            "to": message.get("To") or "",
+            "cc": message.get("Cc") or "",
+            "subject": message.get("Subject") or "",
+            "date": message.get("Date") or "",
+        }
+        if message.is_multipart():
+            parts = [
+                str(part.get_content())
+                for part in message.walk()
+                if part.get_content_type().startswith("text/") and not part.get_filename()
+            ]
+            body_text = "\n".join(part for part in parts if part.strip())
+        else:
+            body_text = str(message.get_content())
+
+    lines = [
+        f"From: {headers.get('from') or ''}",
+        f"To: {headers.get('to') or ''}",
+        f"Cc: {headers.get('cc') or ''}",
+        f"Subject: {headers.get('subject') or ''}",
+        f"Date: {headers.get('date') or ''}",
+        "",
+        str(body_text or "").strip(),
+    ]
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.email-viewer.txt"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text("\n".join(lines), encoding="utf-8")
+    return viewer_path
+
+
+def _build_xml_viewer_artifact(stored_filename: str, source_path: Path) -> Path | None:
+    try:
+        root = ET.fromstring(source_path.read_bytes())
+    except (ET.ParseError, OSError):
+        return None
+
+    def _render_element(node: ET.Element) -> str:
+        tag_name = html.escape(node.tag)
+        attrs = " ".join(
+            f"{html.escape(str(key))}=\"{html.escape(str(value))}\""
+            for key, value in node.attrib.items()
+        )
+        label = f"&lt;{tag_name}{(' ' + attrs) if attrs else ''}&gt;"
+        text_content = html.escape((node.text or "").strip())
+        child_blocks = "".join(_render_element(child) for child in list(node))
+        tail = f"<div class='node-text'>{text_content}</div>" if text_content else ""
+        return f"<details class='xml-node'><summary>{label}</summary>{tail}{child_blocks}</details>"
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.xml-viewer.html"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text(
+        (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;padding:12px;}"
+            ".xml-node{margin-left:12px;padding-left:8px;border-left:1px solid #2f4a79;}"
+            "summary{cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#9dc1ff;}"
+            ".node-text{margin:6px 0 8px 8px;white-space:pre-wrap;overflow-wrap:anywhere;color:#dbeafe;}"
+            "</style></head><body>"
+            f"{_render_element(root)}"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
+
+
+def _build_dxf_viewer_artifact(stored_filename: str, source_path: Path) -> Path | None:
+    try:
+        raw_text = source_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines = [line.rstrip("\r") for line in raw_text.splitlines()]
+    if len(lines) < 2:
+        return None
+
+    line_segments: list[tuple[float, float, float, float]] = []
+    circles: list[tuple[float, float, float]] = []
+    polylines: list[tuple[list[tuple[float, float]], bool]] = []
+
+    current_entity: str | None = None
+    entity_data: dict[str, list[float] | float | int] = {}
+
+    def _to_float(value: str) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _flush_entity() -> None:
+        nonlocal current_entity, entity_data
+        if current_entity == "LINE":
+            x1 = entity_data.get("10")
+            y1 = entity_data.get("20")
+            x2 = entity_data.get("11")
+            y2 = entity_data.get("21")
+            if isinstance(x1, float) and isinstance(y1, float) and isinstance(x2, float) and isinstance(y2, float):
+                line_segments.append((x1, y1, x2, y2))
+        elif current_entity == "CIRCLE":
+            cx = entity_data.get("10")
+            cy = entity_data.get("20")
+            radius = entity_data.get("40")
+            if isinstance(cx, float) and isinstance(cy, float) and isinstance(radius, float) and radius > 0:
+                circles.append((cx, cy, radius))
+        elif current_entity == "LWPOLYLINE":
+            points = entity_data.get("points")
+            flags = entity_data.get("70")
+            closed = isinstance(flags, int) and bool(flags & 1)
+            if isinstance(points, list) and len(points) >= 2:
+                polylines.append(([(float(x), float(y)) for x, y in points], closed))
+        current_entity = None
+        entity_data = {}
+
+    pending_poly_x: float | None = None
+    for index in range(0, len(lines) - 1, 2):
+        code = lines[index].strip()
+        value = lines[index + 1].strip()
+
+        if code == "0":
+            if current_entity in {"LINE", "CIRCLE", "LWPOLYLINE"}:
+                _flush_entity()
+            current_entity = value
+            entity_data = {}
+            pending_poly_x = None
+            continue
+
+        if current_entity == "LINE" and code in {"10", "20", "11", "21"}:
+            parsed = _to_float(value)
+            if parsed is not None:
+                entity_data[code] = parsed
+        elif current_entity == "CIRCLE" and code in {"10", "20", "40"}:
+            parsed = _to_float(value)
+            if parsed is not None:
+                entity_data[code] = parsed
+        elif current_entity == "LWPOLYLINE":
+            if code == "70":
+                try:
+                    entity_data["70"] = int(float(value))
+                except ValueError:
+                    pass
+            elif code == "10":
+                pending_poly_x = _to_float(value)
+            elif code == "20":
+                y = _to_float(value)
+                if pending_poly_x is not None and y is not None:
+                    points = entity_data.setdefault("points", [])
+                    if isinstance(points, list):
+                        points.append((pending_poly_x, y))
+                pending_poly_x = None
+
+    if current_entity in {"LINE", "CIRCLE", "LWPOLYLINE"}:
+        _flush_entity()
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for x1, y1, x2, y2 in line_segments:
+        xs.extend([x1, x2])
+        ys.extend([y1, y2])
+    for cx, cy, r in circles:
+        xs.extend([cx - r, cx + r])
+        ys.extend([cy - r, cy + r])
+    for points, _closed in polylines:
+        for x, y in points:
+            xs.append(x)
+            ys.append(y)
+
+    if not xs or not ys:
+        return None
+
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    width = max(1.0, max_x - min_x)
+    height = max(1.0, max_y - min_y)
+
+    def _sx(value: float) -> float:
+        return value - min_x
+
+    def _sy(value: float) -> float:
+        return max_y - value
+
+    svg_parts: list[str] = []
+    for x1, y1, x2, y2 in line_segments:
+        svg_parts.append(
+            f"<line x1='{_sx(x1):.3f}' y1='{_sy(y1):.3f}' x2='{_sx(x2):.3f}' y2='{_sy(y2):.3f}' />"
+        )
+    for cx, cy, r in circles:
+        svg_parts.append(
+            f"<circle cx='{_sx(cx):.3f}' cy='{_sy(cy):.3f}' r='{r:.3f}' />"
+        )
+    for points, closed in polylines:
+        points_attr = " ".join(f"{_sx(x):.3f},{_sy(y):.3f}" for x, y in points)
+        if closed:
+            svg_parts.append(f"<polygon points='{points_attr}' />")
+        else:
+            svg_parts.append(f"<polyline points='{points_attr}' />")
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.dxf-viewer.html"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text(
+        (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;margin:0;padding:10px;}"
+            ".meta{font-size:12px;color:#9dc1ff;margin-bottom:8px;}"
+            ".canvas{background:#ffffff;border:1px solid #2f4a79;border-radius:8px;overflow:auto;max-height:340px;}"
+            "svg{display:block;width:100%;height:auto;}"
+            "line,polyline,polygon,circle{stroke:#111827;stroke-width:1.2;fill:none;vector-effect:non-scaling-stroke;}"
+            "</style></head><body>"
+            f"<div class='meta'>Entities: LINE {len(line_segments)} · CIRCLE {len(circles)} · LWPOLYLINE {len(polylines)}</div>"
+            "<div class='canvas'>"
+            f"<svg viewBox='0 0 {width:.3f} {height:.3f}' preserveAspectRatio='xMidYMid meet'>"
+            f"{''.join(svg_parts)}"
+            "</svg></div></body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
 
 
 def _extract_image_text(file_path: Path) -> str | None:
@@ -599,6 +941,7 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
         resolved_mime = f"{resolved_mime}; charset=utf-8"
 
     source_kind = _source_kind_for_extension(extension)
+    metadata_payload = _load_metadata_payload(normalized)
     viewer_source_path = source_path
     viewer_source_extension = extension
     viewer_source_mime_type = resolved_mime
@@ -606,18 +949,15 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
 
     if source_kind == "3d":
         metadata_path = METADATA_DIR / f"{normalized}.json"
-        metadata_payload: dict = {}
-        if metadata_path.exists():
+        if metadata_payload:
             try:
-                metadata_payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                metadata_payload = {}
-
-            canonical_glb_raw = str((metadata_payload or {}).get("model_3d_canonical_glb_path") or "").strip()
+                canonical_glb_raw = str((metadata_payload or {}).get("model_3d_canonical_glb_path") or "").strip()
+            except Exception:
+                canonical_glb_raw = ""
             conversion_status = str((metadata_payload or {}).get("model_3d_conversion_status") or "")
             if canonical_glb_raw:
                 canonical_glb_path = Path(canonical_glb_raw)
-                if canonical_glb_path.exists() and conversion_status in {"converted_to_glb", "passthrough_glb"} and _is_valid_glb_file(canonical_glb_path):
+                if canonical_glb_path.exists() and (not conversion_status or conversion_status in {"converted_to_glb", "passthrough_glb"}) and _is_valid_glb_file(canonical_glb_path):
                     viewer_source_path = canonical_glb_path
                     viewer_source_extension = canonical_glb_path.suffix.lower() or ".glb"
                     viewer_source_mime_type = "model/gltf-binary"
@@ -654,6 +994,53 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
                 warnings.append(
                     "Generated canonical GLB was invalid; using original 3D source for viewer loading."
                 )
+
+    if source_kind == "table":
+        parsed_payload = _load_table_payload(normalized, source_path, metadata_payload)
+        table_viewer_path = _build_table_viewer_artifact(normalized, parsed_payload)
+        if table_viewer_path is not None:
+            viewer_source_path = table_viewer_path
+            viewer_source_extension = ".html"
+            viewer_source_mime_type = "text/html; charset=utf-8"
+            viewer_source_kind = "table"
+        else:
+            warnings.append("Could not build table viewer artifact; falling back to original source.")
+
+    if source_kind == "email":
+        parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
+        parsed_payload: dict = {}
+        if parsed_artifact_path_raw:
+            parsed_artifact_path = Path(parsed_artifact_path_raw)
+            if parsed_artifact_path.exists():
+                try:
+                    candidate_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
+                    if isinstance(candidate_payload, dict):
+                        parsed_payload = candidate_payload
+                except (json.JSONDecodeError, OSError):
+                    warnings.append("Could not load parsed email artifact for viewer rendering.")
+
+        email_viewer_path = _build_email_viewer_artifact(normalized, source_path, parsed_payload)
+        if email_viewer_path is not None:
+            viewer_source_path = email_viewer_path
+            viewer_source_extension = ".txt"
+            viewer_source_mime_type = "text/plain; charset=utf-8"
+            viewer_source_kind = "email"
+
+    if source_kind == "xml":
+        xml_viewer_path = _build_xml_viewer_artifact(normalized, source_path)
+        if xml_viewer_path is not None:
+            viewer_source_path = xml_viewer_path
+            viewer_source_extension = ".html"
+            viewer_source_mime_type = "text/html; charset=utf-8"
+            viewer_source_kind = "xml"
+
+    if source_kind == "dxf":
+        dxf_viewer_path = _build_dxf_viewer_artifact(normalized, source_path)
+        if dxf_viewer_path is not None:
+            viewer_source_path = dxf_viewer_path
+            viewer_source_extension = ".html"
+            viewer_source_mime_type = "text/html; charset=utf-8"
+            viewer_source_kind = "dxf"
 
     return SourceDocumentInfoResult(
         status="success",
