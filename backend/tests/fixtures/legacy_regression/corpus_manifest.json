@@ -1,0 +1,30 @@
+[
+  {
+    "filename": "capture_legacy.pcap",
+    "mime_type": "application/octet-stream",
+    "expected_parser": "legacy_best_effort_parser",
+    "expected_warning_code": "LEGACY_FALLBACK_BEST_EFFORT_TEXT",
+    "expected_text_snippet": "PACKET START src=10.10.0.4 dst=10.10.0.8"
+  },
+  {
+    "filename": "notes_legacy.enex",
+    "mime_type": "application/octet-stream",
+    "expected_parser": "legacy_best_effort_parser",
+    "expected_warning_code": "LEGACY_FALLBACK_BEST_EFFORT_TEXT",
+    "expected_text_snippet": "<en-note>Legacy migration note</en-note>"
+  },
+  {
+    "filename": "trace_legacy.log",
+    "mime_type": "application/octet-stream",
+    "expected_parser": "legacy_best_effort_parser",
+    "expected_warning_code": "LEGACY_FALLBACK_BEST_EFFORT_TEXT",
+    "expected_text_snippet": "ERR42 legacy parser drift guard"
+  },
+  {
+    "filename": "layout_legacy.dwg",
+    "expected_parser": "legacy_best_effort_parser",
+    "expected_text_snippet": "SECTION",
+    "mime_type": "application/octet-stream",
+    "expected_warning_code": "LEGACY_FALLBACK_BEST_EFFORT_TEXT"
+  }
+]
