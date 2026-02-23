@@ -603,9 +603,13 @@
         }
         return trimmed;
       };
-      const originApiBase = normalizeBase(window.location.origin || "");
+      const locationHostname = window.location.hostname || "localhost";
+      const hasHttpOrigin = /^https?:$/i.test(window.location.protocol || "");
+      const originApiBase = hasHttpOrigin
+        ? normalizeBase(window.location.origin || "")
+        : "";
       const defaultApiBase = normalizeBase(
-        `${window.location.protocol}//${window.location.hostname}:8000`,
+        `http://${locationHostname}:8000`,
       );
 
       const buildApiBaseCandidates = () => {
@@ -613,10 +617,15 @@
           window.localStorage.getItem("rag_api_base") || "",
         );
         const proxyApiBase = normalizeBase(`${originApiBase}/api`);
-        const alternateProtocol =
-          window.location.protocol === "https:" ? "http:" : "https:";
+        const alternateProtocol = hasHttpOrigin
+          ? window.location.protocol === "https:"
+            ? "http:"
+            : "https:"
+          : "";
         const alternateProtocolBase = normalizeBase(
-          `${alternateProtocol}//${window.location.hostname}:8000`,
+          alternateProtocol
+            ? `${alternateProtocol}//${locationHostname}:8000`
+            : "",
         );
 
         return [
