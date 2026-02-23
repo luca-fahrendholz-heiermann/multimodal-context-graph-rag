@@ -2665,11 +2665,6 @@
               );
               const attachmentPayload = await attachmentResponse.json();
 
-              if (attachmentResponse.ok) {
-                successfulAttachments += 1;
-                continue;
-              }
-
               if (attachmentResponse.status === 202) {
                 statusTone = "warning";
                 successfulAttachments += 1;
@@ -2679,7 +2674,15 @@
                 continue;
               }
 
-              failedAttachments.push(attachment);
+              if (attachmentResponse.ok) {
+                successfulAttachments += 1;
+                continue;
+              }
+
+              failedAttachments.push({
+                file: attachment,
+                message: attachmentPayload.message || "failed to process",
+              });
             }
 
             if (successfulAttachments && !failedAttachments.length) {
@@ -2693,13 +2696,13 @@
             if (failedAttachments.length) {
               statusTone = "warning";
               const failedNames = failedAttachments
-                .map((file) => file.name)
+                .map(({ file, message }) => `${file.name} (${message})`)
                 .join(", ");
               statusMessage = `${statusMessage} Failed attachments: ${failedNames}.`;
             }
 
             setStatus(emailStatus, statusMessage, statusTone);
-            state.emailAttachments = failedAttachments;
+            state.emailAttachments = failedAttachments.map(({ file }) => file);
             renderFileList(state.emailAttachments, emailAttachmentList);
             await refreshRagDbWhenVisible();
           } else {

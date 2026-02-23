@@ -1,12 +1,50 @@
+import io
+import json
 import tempfile
 import unittest
-import json
+import zipfile
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from backend import ingestion
 from backend.ingestion import ingest_smtp_inbox, ingest_watch_folder, validate_upload
+
+
+def _build_sample_xlsx_bytes() -> bytes:
+    workbook_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+      <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+    </workbook>
+    """
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+    </Relationships>
+    """
+    shared_strings_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">
+      <si><t>id</t></si><si><t>name</t></si><si><t>Alice</t></si><si><t>Bob</t></si>
+    </sst>
+    """
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>
+        <row r="2"><c r="A2"><v>1</v></c><c r="B2" t="s"><v>2</v></c></row>
+        <row r="3"><c r="A3"><v>2</v></c><c r="B3" t="s"><v>3</v></c></row>
+      </sheetData>
+    </worksheet>
+    """
+
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", rels_xml)
+        archive.writestr("xl/sharedStrings.xml", shared_strings_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return payload.getvalue()
 
 
 class TestIngestionValidation(unittest.TestCase):
@@ -27,6 +65,21 @@ class TestIngestionValidation(unittest.TestCase):
 
     def test_svg_extension_success(self):
         result = validate_upload("diagram.svg", b"<svg></svg>")
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.warnings, [])
+
+    def test_xlsx_extension_success(self):
+        result = validate_upload("report.xlsx", b"xlsx-bytes")
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.warnings, [])
+
+    def test_eml_extension_success(self):
+        result = validate_upload("mail.eml", b"From: a@example.com\nTo: b@example.com\n\nHello")
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.warnings, [])
+
+    def test_dxf_extension_success(self):
+        result = validate_upload("drawing.dxf", b"0\nSECTION\n2\nENTITIES\n0\nEOF")
         self.assertEqual(result.status, "success")
         self.assertEqual(result.warnings, [])
 
@@ -864,6 +917,26 @@ class TestStructuredParsingFormats(unittest.TestCase):
             fallback["structured_warnings"][0]["code"],
             "LEGACY_FALLBACK_BEST_EFFORT_TEXT",
         )
+
+    def test_parse_dxf_builds_human_readable_summary(self):
+        parsed = ingestion.parse_structured_document(
+            filename="drawing.dxf",
+            content_bytes=(
+                b"0\nSECTION\n2\nENTITIES\n"
+                b"0\nLINE\n8\nWALL\n"
+                b"0\nTEXT\n8\nANNOT\n1\nDoor A\n"
+                b"0\nENDSEC\n0\nEOF\n"
+            ),
+            detected_mime_type="application/dxf",
+            magic_bytes_type=None,
+        )
+
+        self.assertEqual(parsed.parser, "dxf_parser")
+        self.assertEqual(parsed.object_structure["format"], "dxf")
+        self.assertIn("Entities:", parsed.text)
+        self.assertIn("LINE=1", parsed.text)
+        self.assertIn("TEXT=1", parsed.text)
+        self.assertIn("Door A", parsed.text)
 
     def test_legacy_regression_corpus_guards_parser_drift(self):
         fixtures_dir = Path(__file__).parent / "fixtures" / "legacy_regression"
@@ -1858,6 +1931,21 @@ class TestStructuredParsingFormats(unittest.TestCase):
         structure = parsed.object_structure["structure"]
         self.assertEqual(structure["units"], table["units"])
         self.assertEqual(structure["pivot_ranges"], ["A1:C3"])
+
+    def test_parse_xlsx_infers_table_structure(self):
+        parsed = ingestion.parse_structured_document(
+            filename="orders.xlsx",
+            content_bytes=_build_sample_xlsx_bytes(),
+            detected_mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            magic_bytes_type="application/zip",
+        )
+
+        self.assertEqual(parsed.parser, "xlsx_table_parser")
+        self.assertTrue(parsed.tables)
+        table = parsed.tables[0]
+        self.assertEqual(table["sheet_name"], "Sheet1")
+        self.assertEqual(table["header"], ["id", "name"])
+        self.assertEqual(table["rows"], [["1", "Alice"], ["2", "Bob"]])
 
     def test_store_upload_csv_persists_schema_structure(self):
         with tempfile.TemporaryDirectory() as temp_dir:

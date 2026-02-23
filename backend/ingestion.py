@@ -85,6 +85,11 @@ ALLOWED_EXTENSIONS = {
     ".vtt",
     ".pptx",
     ".ppt",
+    ".csv",
+    ".tsv",
+    ".xlsx",
+    ".dxf",
+    ".eml",
 }
 
 UPLOAD_DIR = Path("data/uploads")
@@ -2037,6 +2042,246 @@ def _parse_delimited_table(*, filename: str, content_bytes: bytes, extension: st
     return table_text, tables, warnings, structure
 
 
+def _xlsx_column_index(cell_ref: str) -> int:
+    letters = "".join(char for char in cell_ref if char.isalpha()).upper()
+    if not letters:
+        return -1
+    index = 0
+    for char in letters:
+        index = index * 26 + (ord(char) - ord("A") + 1)
+    return index - 1
+
+
+def _parse_xlsx_table(*, filename: str, content_bytes: bytes) -> tuple[str, list[dict], list[str], dict]:
+    warnings: list[str] = []
+    tables: list[dict] = []
+    schemas: list[dict] = []
+    table_text_blocks: list[str] = []
+
+    try:
+        workbook = zipfile.ZipFile(io.BytesIO(content_bytes))
+    except zipfile.BadZipFile:
+        warnings.append("XLSX parser could not open workbook archive.")
+        return "", [], warnings, {"format": "table", "sheets": []}
+
+    with workbook:
+        try:
+            shared_strings_xml = workbook.read("xl/sharedStrings.xml")
+        except KeyError:
+            shared_strings: list[str] = []
+        else:
+            shared_root = ET.fromstring(shared_strings_xml)
+            shared_strings = ["".join(node.itertext()) for node in shared_root.findall(".//{*}si")]
+
+        workbook_root = ET.fromstring(workbook.read("xl/workbook.xml"))
+
+        rel_map: dict[str, str] = {}
+        try:
+            relationships_root = ET.fromstring(workbook.read("xl/_rels/workbook.xml.rels"))
+            for rel in relationships_root.findall(".//{*}Relationship"):
+                rel_id = rel.attrib.get("Id")
+                target = rel.attrib.get("Target")
+                if rel_id and target:
+                    rel_map[rel_id] = target
+        except KeyError:
+            warnings.append("XLSX relationship metadata missing; using default sheet lookup order.")
+
+        sheets = workbook_root.findall(".//{*}sheet")
+        if not sheets:
+            warnings.append("XLSX workbook does not contain any sheets.")
+            return "", [], warnings, {"format": "table", "sheets": []}
+
+        for sheet_index, sheet in enumerate(sheets, start=1):
+            sheet_name = sheet.attrib.get("name") or f"Sheet{sheet_index}"
+            rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+            target = rel_map.get(rel_id or "", f"worksheets/sheet{sheet_index}.xml")
+            if not target.startswith("xl/"):
+                target = f"xl/{target.lstrip('/')}"
+
+            try:
+                sheet_root = ET.fromstring(workbook.read(target))
+            except KeyError:
+                warnings.append(f"XLSX sheet '{sheet_name}' could not be read from archive.")
+                continue
+
+            row_maps: list[dict[int, str]] = []
+            max_col = -1
+            for row in sheet_root.findall(".//{*}sheetData/{*}row"):
+                row_cells: dict[int, str] = {}
+                sequential_col = 0
+                for cell in row.findall("{*}c"):
+                    reference = cell.attrib.get("r", "")
+                    col_index = _xlsx_column_index(reference)
+                    if col_index < 0:
+                        col_index = sequential_col
+                    sequential_col = col_index + 1
+
+                    cell_type = cell.attrib.get("t")
+                    cell_value = ""
+                    if cell_type == "s":
+                        shared_index = cell.findtext("{*}v", default="").strip()
+                        if shared_index.isdigit() and int(shared_index) < len(shared_strings):
+                            cell_value = shared_strings[int(shared_index)]
+                    elif cell_type == "inlineStr":
+                        cell_value = "".join("".join(node.itertext()) for node in cell.findall("{*}is/{*}t"))
+                    else:
+                        formula = cell.findtext("{*}f")
+                        raw_value = cell.findtext("{*}v", default="")
+                        cell_value = raw_value.strip()
+                        if formula:
+                            cell_value = f"={formula.strip()}"
+
+                    row_cells[col_index] = cell_value.strip()
+                    max_col = max(max_col, col_index)
+
+                if any(value for value in row_cells.values()):
+                    row_maps.append(row_cells)
+
+            if max_col < 0 or not row_maps:
+                warnings.append(f"XLSX sheet '{sheet_name}' contained no readable table rows.")
+                continue
+
+            matrix: list[list[str]] = []
+            for row_map in row_maps:
+                matrix.append([row_map.get(index, "") for index in range(max_col + 1)])
+
+            raw_header = [column.strip() or f"column_{index + 1}" for index, column in enumerate(matrix[0])]
+            header, units = _normalize_header_and_units(raw_header)
+            rows = [[cell.strip() for cell in row] for row in matrix[1:]]
+
+            schema = _infer_table_schema(header=header, rows=rows, sheet_name=sheet_name)
+            formulas = _collect_formula_metadata(rows=rows, header=header)
+            pivot_ranges = _collect_pivot_ranges(rows=rows)
+            header_rows = [{"row": 1, "raw": raw_header, "normalized": header}]
+
+            table_text_rows = [" | ".join(header)]
+            table_text_rows.extend(" | ".join(row + [""] * (len(header) - len(row))) for row in rows)
+            table_text = "\n".join(table_text_rows).strip()
+            table_text_blocks.append(f"[{sheet_name}]\n{table_text}")
+
+            tables.append(
+                {
+                    "sheet_name": sheet_name,
+                    "delimiter": None,
+                    "header": header,
+                    "raw_header": raw_header,
+                    "rows": rows,
+                    "row_count": len(rows),
+                    "text": table_text,
+                    "schema_inference": schema,
+                    "formulas": formulas,
+                    "pivot_ranges": pivot_ranges,
+                    "header_rows": header_rows,
+                    "units": units,
+                }
+            )
+            schemas.append(schema)
+
+    if not tables:
+        return "", [], warnings, {"format": "table", "sheets": []}
+
+    structure = {
+        "format": "table",
+        "sheets": schemas,
+        "header_rows": [table["header_rows"][0] | {"sheet_name": table["sheet_name"]} for table in tables],
+        "units": [unit | {"sheet_name": table["sheet_name"]} for table in tables for unit in table["units"]],
+        "formulas": [formula | {"sheet_name": table["sheet_name"]} for table in tables for formula in table["formulas"]],
+        "pivot_ranges": [
+            {"sheet_name": table["sheet_name"], "range": pivot_range}
+            for table in tables
+            for pivot_range in table["pivot_ranges"]
+        ],
+    }
+    table_text = "\n\n".join(table_text_blocks).strip()
+    return table_text, tables, warnings, structure
+
+
+
+def _parse_dxf_document(*, filename: str, content_bytes: bytes, detected_mime_type: str, magic_bytes_type: str | None, signature_compliance: dict) -> ParsedDoc:
+    warnings: list[str] = []
+    dxf_text = content_bytes.decode("utf-8", errors="replace")
+    lines = [line.rstrip("\r") for line in dxf_text.splitlines()]
+
+    if len(lines) < 2:
+        warnings.append("DXF parser found too few lines; returning best-effort text only.")
+        return ParsedDoc(
+            parser="dxf_parser",
+            text=dxf_text.strip(),
+            layout=[],
+            tables=[],
+            media=[],
+            object_structure={
+                "filename": filename,
+                "mime_type": detected_mime_type,
+                "magic_bytes_type": magic_bytes_type,
+                "format": "dxf",
+                "entities": [],
+                "layers": [],
+                "signature_compliance": signature_compliance,
+            },
+            warnings=warnings,
+        )
+
+    entity_counts: dict[str, int] = {}
+    layer_counts: dict[str, int] = {}
+    text_values: list[str] = []
+    current_entity: str | None = None
+
+    for index in range(0, len(lines) - 1, 2):
+        code = lines[index].strip()
+        value = lines[index + 1].strip()
+
+        if code == "0":
+            current_entity = value
+            if value not in {"SECTION", "ENDSEC", "EOF", "TABLE", "ENDTAB", "BLOCK", "ENDBLK"}:
+                entity_counts[value] = entity_counts.get(value, 0) + 1
+            continue
+
+        if code == "8" and value:
+            layer_counts[value] = layer_counts.get(value, 0) + 1
+            continue
+
+        if code in {"1", "3"} and value and current_entity in {"TEXT", "MTEXT", "ATTRIB"}:
+            text_values.append(value)
+
+    if not entity_counts:
+        warnings.append("DXF parser did not detect explicit entities; extracted raw text only.")
+
+    summary_lines = [f"DXF file: {filename}"]
+    if entity_counts:
+        summary_lines.append("Entities: " + ", ".join(f"{name}={count}" for name, count in sorted(entity_counts.items())))
+    if layer_counts:
+        summary_lines.append("Layers: " + ", ".join(f"{name}={count}" for name, count in sorted(layer_counts.items())))
+    if text_values:
+        summary_lines.append("Text elements:")
+        summary_lines.extend(f"- {value}" for value in text_values[:40])
+
+    human_readable_text = "\n".join(summary_lines).strip()
+    return ParsedDoc(
+        parser="dxf_parser",
+        text=human_readable_text or dxf_text.strip(),
+        layout=[],
+        tables=[],
+        media=[],
+        object_structure={
+            "filename": filename,
+            "mime_type": detected_mime_type,
+            "magic_bytes_type": magic_bytes_type,
+            "format": "dxf",
+            "entities": [
+                {"name": name, "count": count}
+                for name, count in sorted(entity_counts.items())
+            ],
+            "layers": [
+                {"name": name, "count": count}
+                for name, count in sorted(layer_counts.items())
+            ],
+            "text_elements": text_values[:100],
+            "signature_compliance": signature_compliance,
+        },
+        warnings=warnings,
+    )
+
 def _run_ocr_layout_analysis(content_bytes: bytes) -> tuple[str, list[dict], list[str]]:
     """Best-effort OCR-like extraction with block/line/word confidence output."""
     warnings: list[str] = []
@@ -3474,6 +3719,29 @@ def parse_structured_document(
             warnings=warnings,
         )
 
+    if detected_mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or extension == ".xlsx":
+        table_text, tables, table_warnings, structure = _parse_xlsx_table(
+            filename=filename,
+            content_bytes=content_bytes,
+        )
+        warnings.extend(table_warnings)
+        return ParsedDoc(
+            parser="xlsx_table_parser",
+            text=table_text,
+            layout=[],
+            tables=tables,
+            media=[],
+            object_structure={
+                "filename": filename,
+                "mime_type": detected_mime_type,
+                "magic_bytes_type": magic_bytes_type,
+                "format": "table",
+                "structure": structure,
+                "signature_compliance": signature_compliance,
+            },
+            warnings=warnings,
+        )
+
     if detected_mime_type in {"text/csv", "application/vnd.ms-excel"} or extension in {".csv", ".tsv"}:
         table_text, tables, table_warnings, structure = _parse_delimited_table(
             filename=filename,
@@ -3582,6 +3850,15 @@ def parse_structured_document(
                 "signature_compliance": signature_compliance,
             },
             warnings=warnings,
+        )
+
+    if detected_mime_type in {"application/dxf", "image/vnd.dxf", "application/x-dxf"} or extension == ".dxf":
+        return _parse_dxf_document(
+            filename=filename,
+            content_bytes=content_bytes,
+            detected_mime_type=detected_mime_type,
+            magic_bytes_type=magic_bytes_type,
+            signature_compliance=signature_compliance,
         )
 
     if detected_mime_type in {"message/rfc822", "application/eml"} or extension in {".eml", ".msg"}:
@@ -4406,7 +4683,7 @@ def validate_upload(filename: str, content_bytes: bytes) -> ValidationResult:
     if extension not in ALLOWED_EXTENSIONS:
         warnings.append(
             f"Unsupported file type '{extension or 'unknown'}'. "
-            "Supported types: PDF, DOCX, TXT, PNG, JPG, JPEG, SVG, JSON/XML/YAML/TOML, plus machine-code formats (e.g. GCODE/NC/KRL/RAPID/URScript/IEC files)."
+            "Supported types: PDF, DOCX, TXT, EML, CSV/TSV/XLSX, DXF, PNG, JPG, JPEG, SVG, JSON/XML/YAML/TOML, plus machine-code formats (e.g. GCODE/NC/KRL/RAPID/URScript/IEC files)."
         )
         return ValidationResult(
             status="warning",
