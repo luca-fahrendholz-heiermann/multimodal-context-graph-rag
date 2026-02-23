@@ -1,0 +1,74 @@
+{
+  "project_id": "PRJ-2025-042",
+  "nodes": [
+    {
+      "id": "PRJ-2025-042",
+      "type": "project"
+    },
+    {
+      "id": "CUST-ACME-0142",
+      "type": "customer"
+    },
+    {
+      "id": "OFF-2025-0031",
+      "type": "offer"
+    },
+    {
+      "id": "COMM-INV-2025-0015",
+      "type": "invoice"
+    },
+    {
+      "id": "CLM-2025-0007",
+      "type": "claim"
+    },
+    {
+      "id": "CTR-2025-011",
+      "type": "contract"
+    },
+    {
+      "id": "P-AXLE-017",
+      "type": "part"
+    },
+    {
+      "id": "SITE-LEIPZIG-07",
+      "type": "site"
+    }
+  ],
+  "edges": [
+    {
+      "src": "CUST-ACME-0142",
+      "dst": "PRJ-2025-042",
+      "type": "owns"
+    },
+    {
+      "src": "OFF-2025-0031",
+      "dst": "PRJ-2025-042",
+      "type": "part_of"
+    },
+    {
+      "src": "COMM-INV-2025-0015",
+      "dst": "OFF-2025-0031",
+      "type": "derived_from"
+    },
+    {
+      "src": "CLM-2025-0007",
+      "dst": "PRJ-2025-042",
+      "type": "part_of"
+    },
+    {
+      "src": "CTR-2025-011",
+      "dst": "PRJ-2025-042",
+      "type": "governs"
+    },
+    {
+      "src": "P-AXLE-017",
+      "dst": "OFF-2025-0031",
+      "type": "quoted_in"
+    },
+    {
+      "src": "SITE-LEIPZIG-07",
+      "dst": "PRJ-2025-042",
+      "type": "location_of"
+    }
+  ]
+}

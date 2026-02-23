@@ -1,0 +1,24 @@
+src,dst,type,evidence
+INS-EML-001,INS-PDF-002,references,Body nennt CLM-2025-0007
+INS-PDF-002,INS-XLSX-004,references,PDF erwähnt Kostenvoranschlag
+INS-PDF-003,INS-XML-005,same_as,POL-7781 in beiden
+INS-PDF-002,INS-IMG-006,contains,Foto referenziert Claim
+CTR-DOCX-001,CTR-PDF-002,derived_from,Finalisierung des Entwurfs
+CTR-EML-003,CTR-DOCX-001,references,E-Mail bezieht sich auf Vertrag
+CTR-XLSX-004,CTR-DOCX-001,part_of,Risiken gehören zum Vertrag
+COM-PDF-001,COM-DOCX-003,references,Anfrage führt zu Angebot
+COM-XLSX-002,COM-DOCX-003,same_as,OfferId verbindet
+COM-DOCX-003,COM-PDF-004,references,Angebot zu Rechnung
+COM-PDF-004,INS-XML-005,references,Invoice ID in XML Referenzen
+MFG-STEP-001,MFG-STL-002,derived_from,STL ist Tessellation von STEP
+MFG-XLSX-004,MFG-NC-003,derived_from,Arbeitsfolge führt zu CNC Programm
+MFG-IMG-005,MFG-STEP-001,same_as,Foto referenziert DrawingId
+MFG-PLY-006,MFG-IMG-005,references,Pointcloud und Foto gehören zur gleichen Szene
+CNS-EML-001,CNS-PDF-003,contains,E-Mail verweist auf Submission
+CNS-PDF-003,CNS-XLSX-004,references,LV Positionen matchen
+CNS-DXF-002,CNS-TIF-005,references,Plan und Orthophoto gleicher Standort
+CNS-EML-001,CTR-PDF-002,references,Bauanfrage erwähnt ContractId
+CMN-WAV-001,CMN-VTT-002,derived_from,ASR erzeugt Transkript
+CMN-VTT-002,CMN-MD-003,same_as,Gleiche Inhalte in VTT und Notes
+CMN-JSON-004,COM-PDF-004,references,Invoice Node referenziert Dokument
+CMN-JSON-004,INS-PDF-002,references,Claim Node referenziert Dokument

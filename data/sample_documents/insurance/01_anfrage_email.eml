@@ -1,0 +1,20 @@
+From: kunde@example.invalid
+To: claims@example.invalid
+Subject: Schadensanfrage CLM-2025-0007 zu Police POL-7781
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Hallo,
+ich melde einen Schadenfall mit der ID CLM-2025-0007.
+Projekt: PRJ-2025-042
+Kunde: CUST-ACME-0142
+Bitte bestätigen Sie den Eingang und nennen Sie die nächsten Schritte.
+
+Referenzen:
+- Police: POL-7781
+- Angebot: OFF-2025-0031
+- Rechnung: COMM-INV-2025-0015
+
+Gruß
+Max Mustermann (synthetisch)
+

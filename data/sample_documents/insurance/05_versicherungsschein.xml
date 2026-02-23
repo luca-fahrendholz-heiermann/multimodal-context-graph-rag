@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PolicyDocument xmlns="urn:demo:insurance:policy:v1">
+  <PolicyId>POL-7781</PolicyId>
+  <CustomerId>CUST-ACME-0142</CustomerId>
+  <ProductCode>HOME-BASIC</ProductCode>
+  <EffectiveDate>2025-01-01</EffectiveDate>
+  <ExpiryDate>2026-01-01</ExpiryDate>
+  <Premium currency="EUR">420.00</Premium>
+  <References>
+    <Reference type="invoice">COMM-INV-2025-0015</Reference>
+    <Reference type="claim">CLM-2025-0007</Reference>
+  </References>
+</PolicyDocument>
