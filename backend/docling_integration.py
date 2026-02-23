@@ -4,7 +4,9 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
+import csv
 import html
+import io
 import importlib.metadata
 import importlib.util
 import mimetypes
@@ -304,6 +306,8 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
         sheet_name = html.escape(str(table.get("sheet_name") or "Sheet"))
         header = table.get("header") if isinstance(table.get("header"), list) else []
         rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+        column_count = len(header)
+        row_count = len(rows)
         header_html = "".join(
             f"<th>{html.escape(str(cell or ''))}</th>" for cell in header
         )
@@ -316,9 +320,12 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
             )
             body_rows.append(f"<tr>{row_html}</tr>")
         table_html = (
-            "<section>"
+            "<section class='table-sheet'>"
+            "<header class='table-sheet-header'>"
             f"<h3>{sheet_name}</h3>"
-            "<div class='table-wrap'><table>"
+            f"<p>{row_count} rows · {column_count} columns</p>"
+            "</header>"
+            "<div class='rag-db-table-wrap'><table class='rag-db-table'>"
             f"<thead><tr>{header_html}</tr></thead>"
             f"<tbody>{''.join(body_rows)}</tbody>"
             "</table></div>"
@@ -334,13 +341,15 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
     viewer_path.write_text(
         (
             "<!doctype html><html><head><meta charset='utf-8'><style>"
-            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;padding:12px;}"
-            "h3{margin:8px 0 6px;font-size:14px;color:#9dc1ff;}"
-            "section{margin-bottom:14px;border:1px solid #27406a;border-radius:8px;padding:8px;background:#0a1636;}"
-            ".table-wrap{overflow:auto;}"
-            "table{width:100%;border-collapse:collapse;font-size:12px;}"
-            "th,td{border:1px solid #2f4a79;padding:6px;text-align:left;vertical-align:top;}"
-            "th{background:#12224f;position:sticky;top:0;}"
+            "body{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a;padding:12px;margin:0;}"
+            ".table-sheet{margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;padding:10px;background:#fff;}"
+            ".table-sheet-header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;}"
+            ".table-sheet-header h3{margin:0;font-size:14px;color:#0f172a;}"
+            ".table-sheet-header p{margin:0;font-size:12px;color:#475569;}"
+            ".rag-db-table-wrap{overflow:auto;border:1px solid #bfdbfe;border-radius:10px;background:#fff;}"
+            ".rag-db-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px;}"
+            ".rag-db-table th,.rag-db-table td{border-bottom:1px solid #e2e8f0;text-align:left;padding:8px 10px;vertical-align:top;}"
+            ".rag-db-table thead th{position:sticky;top:0;background:#eff6ff;z-index:1;}"
             "</style></head><body>"
             f"{''.join(sections)}"
             "</body></html>"
@@ -348,6 +357,117 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
         encoding="utf-8",
     )
     return viewer_path
+
+
+def _extract_fallback_tables_from_source(source_path: Path) -> list[dict]:
+    extension = source_path.suffix.lower()
+
+    if extension in {".csv", ".tsv"}:
+        try:
+            raw_text = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+
+        delimiter = "	" if extension == ".tsv" else ","
+        rows = [row for row in csv.reader(io.StringIO(raw_text), delimiter=delimiter)]
+        if not rows:
+            return []
+
+        if len(rows) == 1:
+            header = [f"column_{index + 1}" for index in range(len(rows[0]))]
+            body_rows = rows
+        else:
+            header = [str(cell or "").strip() or f"column_{index + 1}" for index, cell in enumerate(rows[0])]
+            body_rows = rows[1:]
+
+        return [
+            {
+                "sheet_name": "Sheet1",
+                "header": header,
+                "rows": [[str(cell or "") for cell in row] for row in body_rows],
+            }
+        ]
+
+    if extension != ".xlsx":
+        return []
+
+    try:
+        workbook = zipfile.ZipFile(source_path)
+    except (OSError, zipfile.BadZipFile):
+        return []
+
+    tables: list[dict] = []
+    with workbook:
+        shared_strings: list[str] = []
+        try:
+            shared_root = ET.fromstring(workbook.read("xl/sharedStrings.xml"))
+            shared_strings = ["".join(node.itertext()) for node in shared_root.findall(".//{*}si")]
+        except (KeyError, ET.ParseError):
+            shared_strings = []
+
+        try:
+            workbook_root = ET.fromstring(workbook.read("xl/workbook.xml"))
+        except (KeyError, ET.ParseError):
+            return []
+
+        rel_map: dict[str, str] = {}
+        try:
+            rel_root = ET.fromstring(workbook.read("xl/_rels/workbook.xml.rels"))
+            for rel in rel_root.findall(".//{*}Relationship"):
+                rel_id = rel.attrib.get("Id")
+                target = rel.attrib.get("Target")
+                if rel_id and target:
+                    rel_map[rel_id] = target
+        except (KeyError, ET.ParseError):
+            rel_map = {}
+
+        for sheet_index, sheet in enumerate(workbook_root.findall(".//{*}sheet"), start=1):
+            sheet_name = str(sheet.attrib.get("name") or f"Sheet{sheet_index}")
+            rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+            target = rel_map.get(rel_id or "", f"worksheets/sheet{sheet_index}.xml")
+            target = target.lstrip("/")
+            if not target.startswith("xl/"):
+                target = f"xl/{target}"
+
+            try:
+                sheet_root = ET.fromstring(workbook.read(target))
+            except (KeyError, ET.ParseError):
+                continue
+
+            matrix: list[list[str]] = []
+            for row in sheet_root.findall(".//{*}sheetData/{*}row"):
+                values: list[str] = []
+                for cell in row.findall("{*}c"):
+                    cell_type = cell.attrib.get("t")
+                    value = ""
+                    if cell_type == "s":
+                        raw_index = (cell.findtext("{*}v", default="") or "").strip()
+                        if raw_index.isdigit() and int(raw_index) < len(shared_strings):
+                            value = shared_strings[int(raw_index)]
+                    elif cell_type == "inlineStr":
+                        value = "".join("".join(node.itertext()) for node in cell.findall("{*}is/{*}t"))
+                    else:
+                        formula = (cell.findtext("{*}f") or "").strip()
+                        raw_value = (cell.findtext("{*}v", default="") or "").strip()
+                        value = f"={formula}" if formula else raw_value
+                    values.append(value)
+
+                if any(value.strip() for value in values):
+                    matrix.append(values)
+
+            if not matrix:
+                continue
+
+            if len(matrix) == 1:
+                header = [f"column_{index + 1}" for index in range(len(matrix[0]))]
+                rows = matrix
+            else:
+                header = [str(cell or "").strip() or f"column_{index + 1}" for index, cell in enumerate(matrix[0])]
+                rows = matrix[1:]
+
+            tables.append({"sheet_name": sheet_name, "header": header, "rows": rows})
+
+    return tables
 
 
 def _load_table_payload(stored_filename: str, source_path: Path, metadata_payload: dict) -> dict:
@@ -365,17 +485,23 @@ def _load_table_payload(stored_filename: str, source_path: Path, metadata_payloa
                 pass
 
     try:
-        parsed = parse_structured_document(
-            filename=stored_filename,
-            content_bytes=source_path.read_bytes(),
-            detected_mime_type=_mime_type_for_extension(source_path.suffix.lower()) or "",
-            magic_bytes_type=None,
-        )
+        source_bytes = source_path.read_bytes()
     except OSError:
         return {}
 
+    parsed = parse_structured_document(
+        filename=stored_filename,
+        content_bytes=source_bytes,
+        detected_mime_type=_mime_type_for_extension(source_path.suffix.lower()) or "",
+        magic_bytes_type=None,
+    )
+
+    tables = list(parsed.tables or [])
+    if not tables:
+        tables = _extract_fallback_tables_from_source(source_path)
+
     return {
-        "tables": parsed.tables or [],
+        "tables": tables,
         "object_structure": parsed.object_structure or {},
     }
 
