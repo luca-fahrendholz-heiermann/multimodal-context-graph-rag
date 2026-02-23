@@ -18,14 +18,14 @@ Ein portfolio-tauglicher Demo-Stack für **multimodale Ingestion**, **RAG-Suche*
 
 ```mermaid
 flowchart LR
-  UI[Frontend UI]\n(Intake/Chat/Evidence/Graph)
-  API[FastAPI Backend]
-  ING[Ingestion Layer]\n(Upload/Email/Watch Folder)
-  PROC[Processing]\n(Convert/Chunk/Embed/Classify)
+  UI["Frontend UI<br/>(Intake/Chat/Evidence/Graph)"]
+  API["FastAPI Backend"]
+  ING["Ingestion Layer<br/>(Upload/Email/Watch Folder)"]
+  PROC["Processing<br/>(Convert/Chunk/Embed/Classify)"]
   VS[(Vector Store)]
   GS[(Graph Layer)]
-  LLMR[LLM Provider\n(OpenAI/Gemini)]
-  LLMS[Stub/Local Fallback\n(Demo Mode)]
+  LLMR["LLM Provider<br/>(OpenAI/Gemini)"]
+  LLMS["Stub/Local Fallback<br/>(Demo Mode)"]
 
   UI --> API
   API --> ING --> PROC

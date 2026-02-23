@@ -74,20 +74,14 @@ flowchart TD
   subgraph Stores[Persistenz]
     VDB[(Vector Store)]
     DOC[(Dokument-Metadaten)]
-    G[(Projekt-Relationsgraph
-Knoten=Dokumente
-Kanten=referenziert/ähnlich/gehört-zu)]
+    G["Projekt-Relationsgraph<br/>Knoten=Dokumente<br/>Kanten=referenziert/ähnlich/gehört-zu"]
   end
 
   subgraph Retrieval[Scoped Retrieval]
-    SCOPE[Scope-Auswahl
-Projekt / Graph-Version / Dokumentmenge]
-    NEIGH[Graph Traversal
-(k-hop Nachbarschaft)]
-    FILTER[Dokumentfilter
-aus Graph-Scope]
-    SEM[Semantische Suche
-nur im Scope]
+    SCOPE["Scope-Auswahl<br/>Projekt / Graph-Version / Dokumentmenge"]
+    NEIGH["Graph Traversal<br/>(k-hop Nachbarschaft)"]
+    FILTER["Dokumentfilter<br/>aus Graph-Scope"]
+    SEM["Semantische Suche<br/>nur im Scope"]
     EVID[Evidence Ranking + Zitate]
   end
 

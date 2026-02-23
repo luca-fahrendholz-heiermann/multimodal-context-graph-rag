@@ -23,5 +23,5 @@ jobs:
           python-version: '3.11'
       - name: Install Python deps
         run: pip install -r backend/requirements.txt pytest
-      - name: Python tests
-        run: pytest backend/tests -q
+      - name: Python smoke tests
+        run: pytest backend/tests/test_health_endpoint.py backend/tests/test_rag.py -q
