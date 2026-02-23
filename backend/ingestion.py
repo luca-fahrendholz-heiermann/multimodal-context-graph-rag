@@ -2095,8 +2095,9 @@ def _parse_xlsx_table(*, filename: str, content_bytes: bytes) -> tuple[str, list
             sheet_name = sheet.attrib.get("name") or f"Sheet{sheet_index}"
             rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
             target = rel_map.get(rel_id or "", f"worksheets/sheet{sheet_index}.xml")
+            target = target.lstrip("/")
             if not target.startswith("xl/"):
-                target = f"xl/{target.lstrip('/')}"
+                target = f"xl/{target}"
 
             try:
                 sheet_root = ET.fromstring(workbook.read(target))
@@ -3543,15 +3544,27 @@ def parse_structured_document(
             warnings=plugin_parsed_doc.warnings,
         )
 
-    detected_dialect = _detect_automation_dialect(
-        filename=filename,
-        text=content_bytes.decode("utf-8", errors="replace"),
-        detected_mime_type=detected_mime_type,
-    )
-    if detected_dialect or extension in {
+    automation_extensions = {
         ".gcode", ".nc", ".cnc", ".tap", ".src", ".dat", ".sub", ".mod", ".sys", ".prg",
         ".tp", ".ls", ".script", ".urscript", ".st", ".il", ".ld", ".scl", ".awl",
-    }:
+    }
+    is_tabular_payload = detected_mime_type in {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "text/csv",
+    } or extension in {".xlsx", ".csv", ".tsv"}
+
+    decoded_text, printable_ratio = _best_effort_text_extraction(content_bytes)
+    detect_automation_by_heuristics = extension in automation_extensions or printable_ratio >= 85
+    detected_dialect = None
+    if not is_tabular_payload and detect_automation_by_heuristics:
+        detected_dialect = _detect_automation_dialect(
+            filename=filename,
+            text=decoded_text,
+            detected_mime_type=detected_mime_type,
+        )
+
+    if detected_dialect or extension in automation_extensions:
         parsed = _parse_automation_document(
             filename=filename,
             content_bytes=content_bytes,
