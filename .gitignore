@@ -1,0 +1,31 @@
+# Node / frontend
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Env and local secrets
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+build/
+dist/
+coverage/
+
+# Runtime / temp data
+*.log
+logs/
+tmp/
+.cache/
+
+# Local data stores and generated artifacts
+data/uploads/
+data/chunks/
+data/image_descriptions/
+backend/chroma_db/
