@@ -22,6 +22,7 @@ from backend.ingestion import (
     UPLOAD_DIR,
     VIEWER_ARTIFACTS_DIR,
     _convert_3d_to_canonical_glb,
+    parse_structured_document,
 )
 
 
@@ -271,6 +272,8 @@ def _source_kind_for_extension(extension: str) -> str:
         return "table"
     if extension in {".eml", ".msg"}:
         return "email"
+    if extension == ".xml":
+        return "xml"
     if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off"}:
         return "3d"
     return "binary"
@@ -345,6 +348,34 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
     return viewer_path
 
 
+def _load_table_payload(stored_filename: str, source_path: Path, metadata_payload: dict) -> dict:
+    parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
+    if parsed_artifact_path_raw:
+        parsed_artifact_path = Path(parsed_artifact_path_raw)
+        if parsed_artifact_path.exists():
+            try:
+                parsed_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
+                if isinstance(parsed_payload, dict):
+                    return parsed_payload
+            except (json.JSONDecodeError, OSError):
+                return {}
+
+    try:
+        parsed = parse_structured_document(
+            filename=stored_filename,
+            content_bytes=source_path.read_bytes(),
+            detected_mime_type=_mime_type_for_extension(source_path.suffix.lower()) or "",
+            magic_bytes_type=None,
+        )
+    except OSError:
+        return {}
+
+    return {
+        "tables": parsed.tables or [],
+        "object_structure": parsed.object_structure or {},
+    }
+
+
 def _build_email_viewer_artifact(stored_filename: str, source_path: Path, parsed_payload: dict) -> Path | None:
     object_structure = parsed_payload.get("object_structure") if isinstance(parsed_payload, dict) else {}
     headers = object_structure.get("headers") if isinstance(object_structure, dict) else {}
@@ -385,6 +416,42 @@ def _build_email_viewer_artifact(stored_filename: str, source_path: Path, parsed
     viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.email-viewer.txt"
     viewer_path.parent.mkdir(parents=True, exist_ok=True)
     viewer_path.write_text("\n".join(lines), encoding="utf-8")
+    return viewer_path
+
+
+def _build_xml_viewer_artifact(stored_filename: str, source_path: Path) -> Path | None:
+    try:
+        root = ET.fromstring(source_path.read_bytes())
+    except (ET.ParseError, OSError):
+        return None
+
+    def _render_element(node: ET.Element) -> str:
+        tag_name = html.escape(node.tag)
+        attrs = " ".join(
+            f"{html.escape(str(key))}=\"{html.escape(str(value))}\""
+            for key, value in node.attrib.items()
+        )
+        label = f"&lt;{tag_name}{(' ' + attrs) if attrs else ''}&gt;"
+        text_content = html.escape((node.text or "").strip())
+        child_blocks = "".join(_render_element(child) for child in list(node))
+        tail = f"<div class='node-text'>{text_content}</div>" if text_content else ""
+        return f"<details class='xml-node'><summary>{label}</summary>{tail}{child_blocks}</details>"
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.xml-viewer.html"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text(
+        (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;padding:12px;}"
+            ".xml-node{margin-left:12px;padding-left:8px;border-left:1px solid #2f4a79;}"
+            "summary{cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#9dc1ff;}"
+            ".node-text{margin:6px 0 8px 8px;white-space:pre-wrap;overflow-wrap:anywhere;color:#dbeafe;}"
+            "</style></head><body>"
+            f"{_render_element(root)}"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
     return viewer_path
 
 
@@ -773,20 +840,15 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
                 )
 
     if source_kind == "table":
-        parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
-        if parsed_artifact_path_raw:
-            parsed_artifact_path = Path(parsed_artifact_path_raw)
-            if parsed_artifact_path.exists():
-                try:
-                    parsed_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
-                    table_viewer_path = _build_table_viewer_artifact(normalized, parsed_payload)
-                    if table_viewer_path is not None:
-                        viewer_source_path = table_viewer_path
-                        viewer_source_extension = ".html"
-                        viewer_source_mime_type = "text/html; charset=utf-8"
-                        viewer_source_kind = "table"
-                except (json.JSONDecodeError, OSError):
-                    warnings.append("Could not load parsed table artifact for viewer rendering.")
+        parsed_payload = _load_table_payload(normalized, source_path, metadata_payload)
+        table_viewer_path = _build_table_viewer_artifact(normalized, parsed_payload)
+        if table_viewer_path is not None:
+            viewer_source_path = table_viewer_path
+            viewer_source_extension = ".html"
+            viewer_source_mime_type = "text/html; charset=utf-8"
+            viewer_source_kind = "table"
+        else:
+            warnings.append("Could not build table viewer artifact; falling back to original source.")
 
     if source_kind == "email":
         parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
@@ -807,6 +869,14 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
             viewer_source_extension = ".txt"
             viewer_source_mime_type = "text/plain; charset=utf-8"
             viewer_source_kind = "email"
+
+    if source_kind == "xml":
+        xml_viewer_path = _build_xml_viewer_artifact(normalized, source_path)
+        if xml_viewer_path is not None:
+            viewer_source_path = xml_viewer_path
+            viewer_source_extension = ".html"
+            viewer_source_mime_type = "text/html; charset=utf-8"
+            viewer_source_kind = "xml"
 
     return SourceDocumentInfoResult(
         status="success",

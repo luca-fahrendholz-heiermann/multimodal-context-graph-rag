@@ -1,6 +1,44 @@
 from pathlib import Path
+import io
+import zipfile
 from backend import docling_integration
 import json
+
+
+def _build_sample_xlsx_bytes() -> bytes:
+    workbook_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+      <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+    </workbook>
+    """
+    rels_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+    </Relationships>
+    """
+    shared_strings_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">
+      <si><t>id</t></si><si><t>name</t></si><si><t>Alice</t></si><si><t>Bob</t></si>
+    </sst>
+    """
+    sheet_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <sheetData>
+        <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>
+        <row r="2"><c r="A2"><v>1</v></c><c r="B2" t="s"><v>2</v></c></row>
+        <row r="3"><c r="A3"><v>2</v></c><c r="B3" t="s"><v>3</v></c></row>
+      </sheetData>
+    </worksheet>
+    """
+
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", rels_xml)
+        archive.writestr("xl/sharedStrings.xml", shared_strings_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+    return payload.getvalue()
 
 
 def test_get_document_preview_success_and_truncation(tmp_path, monkeypatch):
@@ -238,3 +276,45 @@ def test_get_source_document_info_for_eml_creates_email_text_viewer(tmp_path, mo
     rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
     assert "From: sender@example.com" in rendered
     assert "Subject: Hallo" in rendered
+
+
+def test_get_source_document_info_for_xml_creates_collapsible_html_viewer(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_integration, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "VIEWER_ARTIFACTS_DIR", tmp_path / "viewer")
+
+    stored_filename = "payload.xml"
+    (tmp_path / stored_filename).write_text(
+        "<root><invoice id=\"42\"><amount currency=\"EUR\">100</amount></invoice></root>",
+        encoding="utf-8",
+    )
+
+    result = docling_integration.get_source_document_info(stored_filename)
+
+    assert result.status == "success"
+    assert result.source_kind == "xml"
+    assert result.viewer_source_extension == ".html"
+    assert result.viewer_source_kind == "xml"
+    assert result.viewer_source_path is not None
+    rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
+    assert "<details class='xml-node'>" in rendered
+    assert "&lt;invoice id=\"42\"&gt;" in rendered
+
+
+def test_get_source_document_info_for_xlsx_builds_viewer_without_metadata_artifact(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_integration, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "METADATA_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "VIEWER_ARTIFACTS_DIR", tmp_path / "viewer")
+
+    stored_filename = "fallback.xlsx"
+    (tmp_path / stored_filename).write_bytes(_build_sample_xlsx_bytes())
+
+    result = docling_integration.get_source_document_info(stored_filename)
+
+    assert result.status == "success"
+    assert result.source_kind == "table"
+    assert result.viewer_source_extension == ".html"
+    assert result.viewer_source_kind == "table"
+    assert result.viewer_source_path is not None
+    rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
+    assert "<table>" in rendered
+    assert "Sheet1" in rendered

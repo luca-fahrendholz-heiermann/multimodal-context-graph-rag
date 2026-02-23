@@ -1768,6 +1768,13 @@
           frame.title = `Table Viewer ${storedFilename}`;
           sourceViewer.appendChild(frame);
           sourceViewer.hidden = false;
+        } else if (kind === "xml") {
+          const frame = document.createElement("iframe");
+          frame.className = "source-viewer-frame";
+          frame.src = viewerSourceUrl;
+          frame.title = `XML Viewer ${storedFilename}`;
+          sourceViewer.appendChild(frame);
+          sourceViewer.hidden = false;
         } else if (kind === "text" || kind === "email") {
           const textBlock = document.createElement("pre");
           textBlock.className = "source-viewer-text";
