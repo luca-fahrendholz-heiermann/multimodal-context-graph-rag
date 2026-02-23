@@ -358,9 +358,11 @@ def _load_table_payload(stored_filename: str, source_path: Path, metadata_payloa
             try:
                 parsed_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
                 if isinstance(parsed_payload, dict):
-                    return parsed_payload
+                    tables = parsed_payload.get("tables")
+                    if isinstance(tables, list) and tables:
+                        return parsed_payload
             except (json.JSONDecodeError, OSError):
-                return {}
+                pass
 
     try:
         parsed = parse_structured_document(
