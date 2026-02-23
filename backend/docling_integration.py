@@ -274,6 +274,8 @@ def _source_kind_for_extension(extension: str) -> str:
         return "email"
     if extension == ".xml":
         return "xml"
+    if extension == ".dxf":
+        return "dxf"
     if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off"}:
         return "3d"
     return "binary"
@@ -449,6 +451,158 @@ def _build_xml_viewer_artifact(stored_filename: str, source_path: Path) -> Path 
             "</style></head><body>"
             f"{_render_element(root)}"
             "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
+
+
+def _build_dxf_viewer_artifact(stored_filename: str, source_path: Path) -> Path | None:
+    try:
+        raw_text = source_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines = [line.rstrip("\r") for line in raw_text.splitlines()]
+    if len(lines) < 2:
+        return None
+
+    line_segments: list[tuple[float, float, float, float]] = []
+    circles: list[tuple[float, float, float]] = []
+    polylines: list[tuple[list[tuple[float, float]], bool]] = []
+
+    current_entity: str | None = None
+    entity_data: dict[str, list[float] | float | int] = {}
+
+    def _to_float(value: str) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _flush_entity() -> None:
+        nonlocal current_entity, entity_data
+        if current_entity == "LINE":
+            x1 = entity_data.get("10")
+            y1 = entity_data.get("20")
+            x2 = entity_data.get("11")
+            y2 = entity_data.get("21")
+            if isinstance(x1, float) and isinstance(y1, float) and isinstance(x2, float) and isinstance(y2, float):
+                line_segments.append((x1, y1, x2, y2))
+        elif current_entity == "CIRCLE":
+            cx = entity_data.get("10")
+            cy = entity_data.get("20")
+            radius = entity_data.get("40")
+            if isinstance(cx, float) and isinstance(cy, float) and isinstance(radius, float) and radius > 0:
+                circles.append((cx, cy, radius))
+        elif current_entity == "LWPOLYLINE":
+            points = entity_data.get("points")
+            flags = entity_data.get("70")
+            closed = isinstance(flags, int) and bool(flags & 1)
+            if isinstance(points, list) and len(points) >= 2:
+                polylines.append(([(float(x), float(y)) for x, y in points], closed))
+        current_entity = None
+        entity_data = {}
+
+    pending_poly_x: float | None = None
+    for index in range(0, len(lines) - 1, 2):
+        code = lines[index].strip()
+        value = lines[index + 1].strip()
+
+        if code == "0":
+            if current_entity in {"LINE", "CIRCLE", "LWPOLYLINE"}:
+                _flush_entity()
+            current_entity = value
+            entity_data = {}
+            pending_poly_x = None
+            continue
+
+        if current_entity == "LINE" and code in {"10", "20", "11", "21"}:
+            parsed = _to_float(value)
+            if parsed is not None:
+                entity_data[code] = parsed
+        elif current_entity == "CIRCLE" and code in {"10", "20", "40"}:
+            parsed = _to_float(value)
+            if parsed is not None:
+                entity_data[code] = parsed
+        elif current_entity == "LWPOLYLINE":
+            if code == "70":
+                try:
+                    entity_data["70"] = int(float(value))
+                except ValueError:
+                    pass
+            elif code == "10":
+                pending_poly_x = _to_float(value)
+            elif code == "20":
+                y = _to_float(value)
+                if pending_poly_x is not None and y is not None:
+                    points = entity_data.setdefault("points", [])
+                    if isinstance(points, list):
+                        points.append((pending_poly_x, y))
+                pending_poly_x = None
+
+    if current_entity in {"LINE", "CIRCLE", "LWPOLYLINE"}:
+        _flush_entity()
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for x1, y1, x2, y2 in line_segments:
+        xs.extend([x1, x2])
+        ys.extend([y1, y2])
+    for cx, cy, r in circles:
+        xs.extend([cx - r, cx + r])
+        ys.extend([cy - r, cy + r])
+    for points, _closed in polylines:
+        for x, y in points:
+            xs.append(x)
+            ys.append(y)
+
+    if not xs or not ys:
+        return None
+
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    width = max(1.0, max_x - min_x)
+    height = max(1.0, max_y - min_y)
+
+    def _sx(value: float) -> float:
+        return value - min_x
+
+    def _sy(value: float) -> float:
+        return max_y - value
+
+    svg_parts: list[str] = []
+    for x1, y1, x2, y2 in line_segments:
+        svg_parts.append(
+            f"<line x1='{_sx(x1):.3f}' y1='{_sy(y1):.3f}' x2='{_sx(x2):.3f}' y2='{_sy(y2):.3f}' />"
+        )
+    for cx, cy, r in circles:
+        svg_parts.append(
+            f"<circle cx='{_sx(cx):.3f}' cy='{_sy(cy):.3f}' r='{r:.3f}' />"
+        )
+    for points, closed in polylines:
+        points_attr = " ".join(f"{_sx(x):.3f},{_sy(y):.3f}" for x, y in points)
+        if closed:
+            svg_parts.append(f"<polygon points='{points_attr}' />")
+        else:
+            svg_parts.append(f"<polyline points='{points_attr}' />")
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.dxf-viewer.html"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text(
+        (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;margin:0;padding:10px;}"
+            ".meta{font-size:12px;color:#9dc1ff;margin-bottom:8px;}"
+            ".canvas{background:#ffffff;border:1px solid #2f4a79;border-radius:8px;overflow:auto;max-height:340px;}"
+            "svg{display:block;width:100%;height:auto;}"
+            "line,polyline,polygon,circle{stroke:#111827;stroke-width:1.2;fill:none;vector-effect:non-scaling-stroke;}"
+            "</style></head><body>"
+            f"<div class='meta'>Entities: LINE {len(line_segments)} · CIRCLE {len(circles)} · LWPOLYLINE {len(polylines)}</div>"
+            "<div class='canvas'>"
+            f"<svg viewBox='0 0 {width:.3f} {height:.3f}' preserveAspectRatio='xMidYMid meet'>"
+            f"{''.join(svg_parts)}"
+            "</svg></div></body></html>"
         ),
         encoding="utf-8",
     )
@@ -877,6 +1031,14 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
             viewer_source_extension = ".html"
             viewer_source_mime_type = "text/html; charset=utf-8"
             viewer_source_kind = "xml"
+
+    if source_kind == "dxf":
+        dxf_viewer_path = _build_dxf_viewer_artifact(normalized, source_path)
+        if dxf_viewer_path is not None:
+            viewer_source_path = dxf_viewer_path
+            viewer_source_extension = ".html"
+            viewer_source_mime_type = "text/html; charset=utf-8"
+            viewer_source_kind = "dxf"
 
     return SourceDocumentInfoResult(
         status="success",
