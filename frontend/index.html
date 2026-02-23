@@ -704,6 +704,8 @@
           view: null,
           allGraphs: [],
         },
+        llmConnectionOk: false,
+        ragOverviewCache: null,
         chatGraphSelection: {
           graphId: null,
           versionId: null,
@@ -852,7 +854,11 @@
         const hasKey = Boolean(apiKey.value.trim());
         checkConnection.disabled = !(hasProvider && hasKey);
         if (!hasProvider || !hasKey) {
+          state.llmConnectionOk = false;
           setStatus(connectionStatus, "Enter model and API key.", "neutral");
+          if (state.ragDbVisible && state.ragOverviewCache) {
+            renderRagDbOverview(state.ragOverviewCache);
+          }
         }
       };
 
@@ -1980,7 +1986,74 @@
         await renderEvidence();
       };
 
+      const buildClassificationInputFromChunks = async (storedFilename) => {
+        const response = await fetchApi(
+          `/documents/chunks/${encodeURIComponent(storedFilename)}`,
+        );
+        const payload = await response.json();
+        if (!response.ok || !Array.isArray(payload.results) || !payload.results.length) {
+          return "";
+        }
+        return payload.results
+          .map((item) => String(item?.text || "").trim())
+          .filter(Boolean)
+          .slice(0, 12)
+          .join("\n\n")
+          .slice(0, 12000);
+      };
+
+      const classifyDocumentFromRag = async (storedFilename) => {
+        if (!storedFilename) return;
+        if (!state.llmConnectionOk) {
+          setStatus(
+            ragDbStatus,
+            "Classification requires an active LLM connection.",
+            "warning",
+          );
+          return;
+        }
+        const classifyButton = ragDbTableBody.querySelector(
+          `.rag-classify-btn[data-stored-filename="${CSS.escape(storedFilename)}"]`,
+        );
+        if (classifyButton) classifyButton.disabled = true;
+        setStatus(ragDbStatus, `Classifying ${storedFilename}...`, "neutral");
+
+        try {
+          const text = await buildClassificationInputFromChunks(storedFilename);
+          if (!text.trim()) {
+            setStatus(
+              ragDbStatus,
+              "No chunk text found for classification.",
+              "warning",
+            );
+            return;
+          }
+          const result = await callClassification(text, storedFilename);
+          if (!result?.classification?.label) {
+            setStatus(
+              ragDbStatus,
+              result?.message || "Classification failed.",
+              "error",
+            );
+            return;
+          }
+          setStatus(
+            ragDbStatus,
+            `Classified: ${result.classification.label}`,
+            "success",
+          );
+          await applyRagDbFiltersRequest();
+        } catch {
+          setStatus(ragDbStatus, "Classification failed.", "error");
+        } finally {
+          if (classifyButton && !state.llmConnectionOk) {
+            classifyButton.disabled = true;
+          }
+        }
+      };
+
       const renderRagDbOverview = (overview) => {
+        state.ragOverviewCache = overview || null;
         const docs = overview?.documents || [];
         if (!docs.length) {
           ragDbTableBody.innerHTML =
@@ -2003,6 +2076,7 @@
           row.dataset.storedFilename = storedFilename;
 
           const classification = doc.classification || {};
+          const hasClassification = Boolean(classification.label);
           const classText = classification.label
             ? `${classification.label} (${typeof classification.confidence === "number" ? Math.round(classification.confidence * 100) + "%" : "n/a"})`
             : "None";
@@ -2034,7 +2108,19 @@
           downloadButton.textContent = "Download";
           downloadButton.dataset.storedFilename = storedFilename;
 
-          actionCell.append(openButton, downloadButton);
+          const classifyButton = document.createElement("button");
+          classifyButton.type = "button";
+          classifyButton.className = "secondary rag-classify-btn";
+          classifyButton.textContent = "Classify";
+          classifyButton.dataset.storedFilename = storedFilename;
+          classifyButton.disabled = hasClassification || !state.llmConnectionOk;
+          classifyButton.title = hasClassification
+            ? "Document already classified."
+            : state.llmConnectionOk
+              ? "Classify document now"
+              : "Classify available after successful LLM connection check.";
+
+          actionCell.append(openButton, downloadButton, classifyButton);
           row.appendChild(actionCell);
           ragDbTableBody.appendChild(row);
         });
@@ -2077,6 +2163,16 @@
               document.body.appendChild(anchor);
               anchor.click();
               anchor.remove();
+            });
+          },
+        );
+
+        [...ragDbTableBody.querySelectorAll(".rag-classify-btn")].forEach(
+          (button) => {
+            button.addEventListener("click", async (event) => {
+              event.stopPropagation();
+              if (button.disabled) return;
+              await classifyDocumentFromRag(button.dataset.storedFilename || "");
             });
           },
         );
@@ -2739,12 +2835,14 @@
           });
           const payload = await response.json();
           if (response.ok && payload.connected) {
+            state.llmConnectionOk = true;
             setStatus(
               connectionStatus,
               `Verbunden (${provider}): ${payload.response_preview || "OK"}`,
               "success",
             );
           } else {
+            state.llmConnectionOk = false;
             const warningText =
               Array.isArray(payload.warnings) && payload.warnings.length
                 ? ` (${payload.warnings.join(" | ")})`
@@ -2756,6 +2854,7 @@
             );
           }
         } catch {
+          state.llmConnectionOk = false;
           setStatus(
             connectionStatus,
             "Not connected: Backend unreachable.",
@@ -2763,6 +2862,9 @@
           );
         } finally {
           updateConnectionButtonState();
+          if (state.ragDbVisible && state.ragOverviewCache) {
+            renderRagDbOverview(state.ragOverviewCache);
+          }
         }
       });
 
