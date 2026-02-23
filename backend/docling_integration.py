@@ -276,7 +276,7 @@ def _source_kind_for_extension(extension: str) -> str:
         return "xml"
     if extension == ".dxf":
         return "dxf"
-    if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off"}:
+    if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off", ".ifc", ".step", ".iges"}:
         return "3d"
     return "binary"
 
@@ -766,7 +766,7 @@ def convert_document_to_markdown(file_path: Path) -> ConversionResult:
             warnings=warnings,
         )
 
-    if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off"}:
+    if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off", ".ifc", ".step", ".iges"}:
         warnings.append("Skipped Docling conversion for 3D model; generated viewer-oriented Markdown summary.")
         return ConversionResult(
             status="success",
@@ -956,6 +956,19 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
 
     if source_kind == "3d":
         metadata_path = METADATA_DIR / f"{normalized}.json"
+
+        if extension == ".ifc":
+            ifc_obj_path_raw = str((metadata_payload or {}).get("model_3d_ifc_obj_path") or "").strip()
+            if ifc_obj_path_raw:
+                ifc_obj_path = Path(ifc_obj_path_raw)
+                if ifc_obj_path.exists() and ifc_obj_path.stat().st_size > 0:
+                    viewer_source_path = ifc_obj_path
+                    viewer_source_extension = ".obj"
+                    viewer_source_mime_type = _mime_type_for_extension(".obj") or "model/obj"
+                    viewer_source_kind = "3d"
+                else:
+                    warnings.append("Stored IFC->OBJ artifact is missing; falling back to canonical/original 3D source.")
+
         if metadata_payload:
             try:
                 canonical_glb_raw = str((metadata_payload or {}).get("model_3d_canonical_glb_path") or "").strip()
