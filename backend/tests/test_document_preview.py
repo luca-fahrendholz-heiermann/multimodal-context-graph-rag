@@ -375,3 +375,27 @@ def test_get_source_document_info_for_xlsx_falls_back_when_parsed_artifact_has_n
     rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
     assert "<table class='rag-db-table'>" in rendered
     assert "Sheet1" in rendered
+
+
+def test_get_source_document_info_for_ifc_prefers_obj_sidecar(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_integration, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "METADATA_DIR", tmp_path)
+
+    stored_filename = "building.ifc"
+    source_path = tmp_path / stored_filename
+    source_path.write_text("ISO-10303-21;", encoding="utf-8")
+    obj_path = tmp_path / "building.obj"
+    obj_path.write_text("o building\nv 0 0 0\n", encoding="utf-8")
+
+    (tmp_path / f"{stored_filename}.json").write_text(
+        json.dumps({"model_3d_ifc_obj_path": str(obj_path)}),
+        encoding="utf-8",
+    )
+
+    result = docling_integration.get_source_document_info(stored_filename)
+
+    assert result.status == "success"
+    assert result.source_kind == "3d"
+    assert result.viewer_source_extension == ".obj"
+    assert result.viewer_source_path == str(obj_path)
+    assert result.viewer_source_mime_type == "model/obj"
