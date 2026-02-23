@@ -122,7 +122,6 @@ Synthetische Beispieldokumente ohne PII liegen unter `data/sample_documents/`.
 - [ ] Optimizing OCR
 - [ ] Optimizing 3D Viewer
 - [ ] Optimizing dynamic Search Engine for tabular data
-- [ ] Provide Sample Data
 
 
 ## Screenshots
