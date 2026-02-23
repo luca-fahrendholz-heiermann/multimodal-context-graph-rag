@@ -6,6 +6,7 @@ import json
 import os
 import re
 import csv
+import subprocess
 import string
 import base64
 import hashlib
@@ -1003,6 +1004,12 @@ def _prepare_3d_pipeline_artifacts(*, metadata: dict, provider: str, api_key: st
     if modality != "3d":
         return
 
+    if extension == ".ifc":
+        obj_path, ifc_obj_status, ifc_obj_warnings = _convert_ifc_to_obj(source_path=source_path)
+        metadata["model_3d_ifc_obj_path"] = str(obj_path) if obj_path else None
+        metadata["model_3d_ifc_obj_status"] = ifc_obj_status
+        metadata["model_3d_ifc_obj_warnings"] = ifc_obj_warnings
+
     canonical_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.canonical.glb"
     preview_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.preview.png"
 
@@ -1091,6 +1098,46 @@ def _build_3d_viewer_meta_mapping(canonical_meta: dict) -> dict:
         "fit_to_object_targets": fit_targets,
     }
 
+
+
+def _convert_ifc_to_obj(*, source_path: Path) -> tuple[Path | None, str, list[str]]:
+    warnings: list[str] = []
+    if source_path.suffix.lower() != ".ifc":
+        return None, "not_ifc", warnings
+
+    output_path = source_path.with_suffix(".obj")
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return output_path, "already_exists", warnings
+
+    converter_binary = shutil.which("IFCConverter") or shutil.which("IfcConvert")
+    if converter_binary is None:
+        warnings.append("IFCConverter/IfcConvert is not available; IFC viewer fallback remains limited.")
+        return None, "converter_missing", warnings
+
+    try:
+        result = subprocess.run(
+            [converter_binary, str(source_path), str(output_path)],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        warnings.append(f"IFC->OBJ conversion failed to start: {exc}")
+        return None, "conversion_error", warnings
+
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        details = stderr or stdout or f"exit_code={result.returncode}"
+        warnings.append(f"IFC->OBJ conversion failed: {details}")
+        return None, "conversion_failed", warnings
+
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        warnings.append("IFC->OBJ conversion completed without creating a usable OBJ artifact.")
+        return None, "conversion_failed", warnings
+
+    return output_path, "converted", warnings
 
 
 def _build_image_analysis_text(metadata: dict) -> str:
