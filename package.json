@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "docker compose up --build",
+    "start": "docker compose up",
+    "build": "echo 'Build is handled via docker compose images.'",
+    "lint": "echo 'Lint placeholder: TypeScript strict lint is not yet enforced in this demo repository.'",
     "test": "vitest run"
   },
   "devDependencies": {

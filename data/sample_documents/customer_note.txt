@@ -1,0 +1,2 @@
+Synthetic customer note:
+The product should answer only from evidence snippets and clearly signal missing information.
