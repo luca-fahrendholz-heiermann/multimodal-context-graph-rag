@@ -1,0 +1,35 @@
+services:
+  backend:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      RAG_INSTALL_DOCLING: ${RAG_INSTALL_DOCLING:-0}
+      RAG_IMAGE_DESCRIPTION_PROVIDER: ${RAG_IMAGE_DESCRIPTION_PROVIDER:-}
+      RAG_IMAGE_DESCRIPTION_OPENAI_MODEL: ${RAG_IMAGE_DESCRIPTION_OPENAI_MODEL:-gpt-4.1-mini}
+      RAG_IMAGE_DESCRIPTION_GEMINI_MODEL: ${RAG_IMAGE_DESCRIPTION_GEMINI_MODEL:-gemini-1.5-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    command: >-
+      sh -c "PIP_REQUIRE_HASHES=0 PIP_CONSTRAINT= pip install --no-cache-dir -r backend/requirements.txt
+      && if [ "$RAG_INSTALL_DOCLING" = "1" ]; then PIP_REQUIRE_HASHES=0 PIP_CONSTRAINT= pip install --no-cache-dir -r backend/requirements-docling.txt; fi
+      && uvicorn backend.app:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: >-
+      sh -c "npx --yes http-server ./frontend -p 3000 -a 0.0.0.0 -c-1 --proxy http://backend:8000?"
+    ports:
+      - "3000:3000"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"

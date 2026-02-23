@@ -1,0 +1,3316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multimodal Graph-RAG Context Assistant</title>
+    <link rel="icon" type="image/svg+xml" href="assets/symbol_logo.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar card">
+        <div class="brand-wrap">
+          <img
+            src="assets/tool_logo.svg"
+            alt="Multimodal Graph-RAG Context Assistant logo"
+            class="brand-logo"
+          />
+          <div>
+            <h1>Multimodal Graph-RAG Context Assistant</h1>
+            <p class="subtitle">
+              Ingestion, chat and evidence view in one workflow.
+            </p>
+          </div>
+        </div>
+        <button id="settingsToggle" type="button" class="secondary">
+          Settings
+        </button>
+      </header>
+
+      <section id="settingsPanel" class="card settings">
+        <div class="settings-grid">
+          <div class="field">
+            <label for="apiProvider">LLM Provider</label>
+            <select id="apiProvider">
+              <option value="chatgpt">ChatGPT (OpenAI)</option>
+              <option value="gemini">Gemini (Google)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="apiKey">LLM API key</label>
+            <input
+              id="apiKey"
+              type="password"
+              placeholder="sk-..."
+              autocomplete="off"
+            />
+          </div>
+          <div class="field">
+            <label for="tokenLimit">Token limit</label>
+            <input id="tokenLimit" type="number" min="1" value="2048" />
+          </div>
+          <div class="field checkbox-row">
+            <label for="enableClassification">Classification in pipeline</label>
+            <input id="enableClassification" type="checkbox" />
+          </div>
+          <div class="field checkbox-row">
+            <label for="darkModeToggle">Dark mode</label>
+            <input id="darkModeToggle" type="checkbox" />
+          </div>
+          <div class="field connection-check" aria-live="polite">
+            <label>Test LLM connection</label>
+            <div class="connection-controls">
+              <button
+                id="checkConnection"
+                type="button"
+                class="secondary connection-check-btn"
+              >
+                Check Connection
+              </button>
+              <p id="connectionStatus" class="status" data-tone="neutral">
+                Enter model and API key.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="apiBaseInput">Backend API URL (optional)</label>
+          <div class="connection-controls">
+            <input
+              id="apiBaseInput"
+              type="text"
+              placeholder="e.g. http://localhost:8000"
+            />
+            <button
+              id="saveApiBase"
+              type="button"
+              class="secondary connection-check-btn"
+            >
+              Save
+            </button>
+          </div>
+          <p id="apiBaseStatus" class="status" data-tone="neutral">
+            Empty = automatic detection.
+          </p>
+        </div>
+        <div class="field">
+          <div class="field-header">
+            <label>Classification label whitelist</label>
+            <div class="connection-controls">
+              <button
+                id="selectAllLabels"
+                type="button"
+                class="secondary connection-check-btn"
+              >
+                All
+              </button>
+              <span class="helper">Empty = full whitelist.</span>
+            </div>
+          </div>
+          <div
+            id="labelOptions"
+            class="label-options"
+            role="group"
+            aria-label="Classification labels"
+          ></div>
+          <p id="selectedLabelsSummary" class="helper">
+            Selection: all classes (whitelist).
+          </p>
+        </div>
+      </section>
+
+      <section class="layout-3col" id="layout3col">
+        <article id="intakeColumn" class="card column-card">
+          <header class="column-header">
+            <h2>Intake</h2>
+            <button
+              type="button"
+              class="secondary column-toggle"
+              data-column="intake"
+              aria-expanded="true"
+            >
+              Collapse
+            </button>
+            <p class="subtitle">
+              Ingest email or files into the RAG index.
+            </p>
+          </header>
+
+          <div class="tabs" role="tablist" aria-label="Intake tabs">
+            <button
+              class="tab is-active"
+              data-tab="email"
+              role="tab"
+              type="button"
+            >
+              Fake Email
+            </button>
+            <button class="tab" data-tab="files" role="tab" type="button">
+              File Upload
+            </button>
+          </div>
+
+          <div id="tab-email" class="tab-panel">
+            <form id="emailForm" class="form">
+              <div class="field">
+                <label for="emailRecipient">To</label>
+                <input
+                  id="emailRecipient"
+                  type="email"
+                  placeholder="rag-inbox@example.local"
+                />
+              </div>
+              <div class="field">
+                <label for="emailSender">From</label>
+                <input
+                  id="emailSender"
+                  type="email"
+                  value="demo-sender@example.local"
+                />
+              </div>
+              <div class="field">
+                <label for="emailSubject">Subject</label>
+                <input id="emailSubject" type="text" placeholder="Subject" />
+              </div>
+              <div class="field">
+                <label for="emailBody">Body</label>
+                <textarea
+                  id="emailBody"
+                  rows="5"
+                  placeholder="Type your email body..."
+                ></textarea>
+              </div>
+              <div class="field">
+                <label>Email attachments</label>
+                <div id="emailDropZone" class="drop-zone" tabindex="0">
+                  Drop attachments here (optional, multiple files supported)
+                </div>
+                <input id="emailAttachments" type="file" multiple hidden />
+                <ul id="emailAttachmentList" class="file-list"></ul>
+              </div>
+              <div class="actions">
+                <button type="submit">Send & Process</button>
+                <p id="emailStatus" class="status" data-tone="neutral">
+                  Compose and send an email.
+                </p>
+              </div>
+            </form>
+          </div>
+
+          <div id="tab-files" class="tab-panel" hidden>
+            <div class="field compact-grid">
+              <div class="field">
+                <label for="chunkSize">Chunk size</label>
+                <input id="chunkSize" type="number" min="100" value="1000" />
+              </div>
+              <div class="field">
+                <label for="chunkOverlap">Chunk overlap</label>
+                <input id="chunkOverlap" type="number" min="0" value="200" />
+              </div>
+            </div>
+            <div id="dropZone" class="drop-zone" tabindex="0">
+              Drag and drop files (multiple) or click to select
+            </div>
+            <input id="fileInput" type="file" multiple hidden />
+            <ul id="uploadFileList" class="file-list"></ul>
+            <div class="actions">
+              <button id="uploadSubmit" type="button">
+                Send & Process
+              </button>
+              <p id="ingestStatus" class="status" data-tone="neutral">
+                No file selected yet.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <div
+          id="resizerIntakeChat"
+          class="column-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Adjust column width"
+        ></div>
+        <article id="chatColumn" class="card column-card chat-column">
+          <header class="chat-header column-header">
+            <h2>Chat with your documents</h2>
+            <button
+              type="button"
+              class="secondary column-toggle"
+              data-column="chat"
+              aria-expanded="true"
+            >
+              Collapse
+            </button>
+            <div class="chat-header-controls">
+              <div class="field chat-graph-filter">
+                <label for="chatGraphSelect">Relations Graph</label>
+                <select id="chatGraphSelect">
+                  <option value="">Default (all documents)</option>
+                </select>
+              </div>
+              <div class="field top-k-field">
+                <label for="topK">Top-k chunks</label>
+                <input id="topK" type="number" min="1" max="10" value="5" />
+              </div>
+            </div>
+          </header>
+          <div id="chatMessages" class="chat-messages"></div>
+          <form id="ragForm" class="form chat-input-form">
+            <div class="field chat-message-field">
+              <label for="queryText">Message</label>
+              <div class="chat-compose-shell">
+                <textarea
+                  id="queryText"
+                  rows="5"
+                  placeholder="Ask something about your documents..."
+                ></textarea>
+                <div
+                  class="chat-compose-actions"
+                  role="group"
+                  aria-label="Chat actions"
+                >
+                  <button
+                    id="voiceInputBtn"
+                    type="button"
+                    class="secondary icon-button"
+                    aria-label="Voice input"
+                    title="Voice input"
+                  >
+                    🎙️
+                  </button>
+                  <button
+                    type="submit"
+                    class="icon-button"
+                    aria-label="Send"
+                    title="Send"
+                  >
+                    ➤
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="actions">
+              <p id="ragStatus" class="status" data-tone="neutral">
+                Ready for a query.
+              </p>
+            </div>
+          </form>
+        </article>
+
+        <div
+          id="resizerChatEvidence"
+          class="column-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Adjust column width"
+        ></div>
+        <article id="evidenceColumn" class="card column-card evidence-column">
+          <header class="column-header">
+            <h2>Evidence Viewer</h2>
+            <button
+              type="button"
+              class="secondary column-toggle"
+              data-column="evidence"
+              aria-expanded="true"
+            >
+              Collapse
+            </button>
+            <p class="subtitle">
+              Passages from the latest answer with navigation.
+            </p>
+          </header>
+          <p id="evidenceStatus" class="helper">
+            No evidence available yet.
+          </p>
+          <div id="evidenceBody" hidden>
+            <div class="preview-panel">
+              <div class="preview-header">
+                <h3 id="evidenceTitle">Document</h3>
+                <span id="evidenceCounter" class="helper"></span>
+              </div>
+              <p id="evidenceMeta" class="helper"></p>
+              <div id="sourceViewer" class="source-viewer" hidden></div>
+              <p id="sourceViewerStatus" class="helper" hidden></p>
+              <div class="source-actions">
+                <button
+                  id="downloadSourceBtn"
+                  type="button"
+                  class="secondary"
+                  hidden
+                >
+                  Download document
+                </button>
+              </div>
+              <p id="previewMeta" class="preview-meta"></p>
+              <pre id="previewContent" class="preview-content"></pre>
+            </div>
+            <div
+              id="evidenceClassification"
+              class="classification-result"
+              hidden
+            >
+              <div class="result-row">
+                <span class="result-label">Label</span
+                ><span id="classificationLabel">—</span>
+              </div>
+              <div class="result-row">
+                <span class="result-label">Confidence</span
+                ><span id="classificationConfidence">—</span>
+              </div>
+              <p id="classificationSnippet" class="helper"></p>
+            </div>
+            <div class="evidence-nav">
+              <button id="prevEvidence" type="button" class="secondary">
+                ← Back
+              </button>
+              <button id="nextEvidence" type="button" class="secondary">
+                Next →
+              </button>
+            </div>
+          </div>
+        </article>
+      </section>
+      <section
+        id="collapsedColumnsBar"
+        class="collapsed-columns-bar"
+        aria-label="Hidden columns"
+      ></section>
+      <section class="rag-db-launch-row">
+        <button
+          id="openRagDb"
+          type="button"
+          class="secondary rag-db-toggle-btn"
+        >
+          Open RAG database
+        </button>
+      </section>
+      <section id="ragDbPanel" class="card rag-db-panel" hidden>
+        <div class="rag-db-meta">
+          <p id="ragDbStatus" class="status" data-tone="neutral">
+            Not loaded yet.
+          </p>
+          <div class="rag-db-actions">
+            <button id="refreshRagDb" type="button" class="secondary">
+              Refresh
+            </button>
+            <button id="resetRagDbFilters" type="button" class="secondary">
+              Reset filters
+            </button>
+          </div>
+        </div>
+        <div class="rag-db-filter-grid">
+          <div class="field">
+            <label for="ragDbNaturalFilter"
+              >Dynamic search (LLM + full text)</label
+            >
+            <div class="input-with-icon">
+              <input
+                id="ragDbNaturalFilter"
+                type="text"
+                placeholder="e.g. all documents from February 2026 or invoice meier"
+              />
+              <button
+                id="ragDbVoiceInputBtn"
+                type="button"
+                class="secondary icon-button input-icon-btn"
+                aria-label="Voice input for database search"
+                title="Voice input for database search"
+                data-recording="false"
+              >
+                🎙️
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="ragDbDateFrom">From (ISO date)</label>
+            <input id="ragDbDateFrom" type="date" />
+          </div>
+          <div class="field">
+            <label for="ragDbDateTo">To (ISO date)</label>
+            <input id="ragDbDateTo" type="date" />
+          </div>
+          <div class="field">
+            <label for="ragDbClassFilter">Classification</label>
+            <input
+              id="ragDbClassFilter"
+              type="text"
+              placeholder="invoice / contract / ..."
+            />
+          </div>
+        </div>
+        <div class="actions inline">
+          <button id="applyRagDbFilters" type="button">Apply filters</button>
+          <p id="ragDbFilterStatus" class="status" data-tone="neutral">
+            No filters active.
+          </p>
+        </div>
+        <section id="ragWorkspace" class="rag-workspace">
+          <article id="ragDbDataColumn" class="rag-workspace-column card">
+            <header class="rag-workspace-header">
+              <h3>RAG Database</h3>
+              <button id="toggleRagDbData" type="button" class="secondary">
+                Collapse
+              </button>
+            </header>
+            <div class="rag-db-table-wrap">
+              <table class="rag-db-table">
+                <thead>
+                  <tr>
+                    <th>Document</th>
+                    <th>Source</th>
+                    <th>Typ</th>
+                    <th>Metadata</th>
+                    <th>Index</th>
+                    <th>Classification</th>
+                    <th>Chunks</th>
+                    <th>Dim</th>
+                    <th>Indexed</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="ragDbTableBody"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <div
+            id="ragWorkspaceResizer"
+            class="column-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="RAG Database und Graph Breite anpassen"
+          ></div>
+
+          <article
+            id="graphBuilderColumn"
+            class="graph-builder rag-workspace-column card"
+          >
+            <header class="rag-workspace-header">
+              <div>
+                <h3>Graph Builder</h3>
+                <p class="subtitle">
+                  Manage relations manually and visualize them live.
+                </p>
+              </div>
+              <button id="toggleGraphBuilder" type="button" class="secondary">
+                Collapse
+              </button>
+            </header>
+
+            <div class="graph-zone graph-zone-a">
+              <div class="field">
+                <label for="graphSelect">Select graph</label>
+                <select id="graphSelect"></select>
+              </div>
+              <div class="graph-inline-actions">
+                <button id="createGraphBtn" type="button" class="secondary">
+                  Create new graph
+                </button>
+              </div>
+              <div class="field">
+                <label for="graphVersionSelect">Version</label>
+                <select id="graphVersionSelect"></select>
+              </div>
+              <div class="graph-inline-actions">
+                <button id="createDraftBtn" type="button" class="secondary">
+                  Create draft
+                </button>
+                <button id="commitVersionBtn" type="button" class="secondary">
+                  Commit
+                </button>
+                <button id="rollbackVersionBtn" type="button" class="secondary">
+                  Enable rollback
+                </button>
+              </div>
+            </div>
+
+            <div class="graph-zone graph-zone-b">
+              <div class="field">
+                <label for="docASelect">Document A</label>
+                <select id="docASelect"></select>
+              </div>
+              <div class="field">
+                <label for="relationType">Relation</label>
+                <select id="relationType">
+                  <option value="references">references</option>
+                  <option value="contains">contains</option>
+                  <option value="derived_from">derived_from</option>
+                  <option value="related_to">related_to</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="docBSelect">Document B</label>
+                <select id="docBSelect"></select>
+              </div>
+              <div class="field">
+                <label for="relationNote">Note</label>
+                <input id="relationNote" type="text" placeholder="Optional" />
+              </div>
+              <div class="graph-inline-actions">
+                <button id="addRelationBtn" type="button">
+                  + Add relation
+                </button>
+                <p id="graphStatus" class="status" data-tone="neutral">
+                  Graph not loaded yet.
+                </p>
+              </div>
+            </div>
+
+            <div class="graph-zone graph-zone-c">
+              <div
+                id="graphViewer"
+                class="graph-viewer"
+                aria-label="Graph Viewer"
+              ></div>
+            </div>
+          </article>
+        </section>
+        <div
+          id="ragWorkspaceCollapsedBar"
+          class="collapsed-columns-bar"
+          hidden
+        ></div>
+
+        <div class="rag-db-footer">
+          <button id="closeRagDb" type="button" class="secondary">
+            Close RAG database
+          </button>
+        </div>
+      </section>
+      <footer class="app-footer" aria-label="Copyright information">
+        <p>© 2026 Jan Luca Fahrendholz-Heiermann. All rights reserved.</p>
+        <p>Developed by Jan Luca Fahrendholz-Heiermann</p>
+      </footer>
+    </main>
+
+    <script>
+      const normalizeBase = (value) => {
+        const trimmed = String(value || "")
+          .trim()
+          .replace(/\/$/, "");
+        if (!trimmed) return "";
+        try {
+          const parsed = new URL(trimmed);
+          if (parsed.hostname === "0.0.0.0") {
+            parsed.hostname = window.location.hostname || "localhost";
+            return parsed.toString().replace(/\/$/, "");
+          }
+        } catch {
+          // Keep raw value if URL parsing fails.
+        }
+        return trimmed;
+      };
+      const originApiBase = normalizeBase(window.location.origin || "");
+      const defaultApiBase = normalizeBase(
+        `${window.location.protocol}//${window.location.hostname}:8000`,
+      );
+
+      const buildApiBaseCandidates = () => {
+        const configuredApiBase = normalizeBase(
+          window.localStorage.getItem("rag_api_base") || "",
+        );
+        const proxyApiBase = normalizeBase(`${originApiBase}/api`);
+        const alternateProtocol =
+          window.location.protocol === "https:" ? "http:" : "https:";
+        const alternateProtocolBase = normalizeBase(
+          `${alternateProtocol}//${window.location.hostname}:8000`,
+        );
+
+        return [
+          configuredApiBase,
+          defaultApiBase,
+          alternateProtocolBase,
+          proxyApiBase,
+          originApiBase,
+        ]
+          .filter(Boolean)
+          .filter((base, index, list) => list.indexOf(base) === index);
+      };
+
+      let apiBaseCandidates = buildApiBaseCandidates();
+      const API_BASE = apiBaseCandidates[0] || defaultApiBase;
+      let activeApiBase = API_BASE;
+      const apiPath = (path, base = activeApiBase || API_BASE) =>
+        `${base}${path}`;
+
+      const fetchApi = async (path, options) => {
+        let lastError = null;
+        let lastHttpResponse = null;
+
+        for (const base of apiBaseCandidates) {
+          try {
+            const response = await fetch(apiPath(path, base), options);
+            const contentType = (
+              response.headers.get("content-type") || ""
+            ).toLowerCase();
+            const likelyHtmlFallback = contentType.includes("text/html");
+            const shouldTryNextBase =
+              apiBaseCandidates.length > 1 &&
+              (response.status === 404 || likelyHtmlFallback);
+
+            if (shouldTryNextBase) {
+              continue;
+            }
+
+            lastHttpResponse = response;
+            activeApiBase = base;
+            return response;
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        if (lastHttpResponse) {
+          return lastHttpResponse;
+        }
+
+        throw lastError || new Error("Backend request failed");
+      };
+
+      const DEFAULT_BUSINESS_LABELS = [
+        "invoice",
+        "purchase-order",
+        "contract",
+        "nda",
+        "policy",
+        "compliance",
+        "legal-notice",
+        "proposal",
+        "report",
+        "meeting-minutes",
+        "customer-support",
+        "cv-resume",
+      ];
+
+      const state = {
+        uploadQueue: [],
+        emailAttachments: [],
+        evidence: [],
+        evidenceIndex: 0,
+        lastClassification: null,
+        ragDbVisible: false,
+        ragWorkspace: {
+          widths: { data: 1.15, graph: 1 },
+          collapsed: { data: false, graph: false },
+        },
+        graph: {
+          graphId: null,
+          versionId: null,
+          versions: [],
+          documents: [],
+          view: null,
+          allGraphs: [],
+        },
+        chatGraphSelection: {
+          graphId: null,
+          versionId: null,
+        },
+        layout: {
+          widths: { intake: 1, chat: 1.15, evidence: 1 },
+          collapsed: { intake: false, chat: false, evidence: false },
+        },
+      };
+
+      const ragForm = document.getElementById("ragForm");
+      const queryText = document.getElementById("queryText");
+      const topK = document.getElementById("topK");
+      const ragStatus = document.getElementById("ragStatus");
+      const chatMessages = document.getElementById("chatMessages");
+      const chatGraphSelect = document.getElementById("chatGraphSelect");
+      const layout3col = document.getElementById("layout3col");
+      const intakeColumn = document.getElementById("intakeColumn");
+      const chatColumn = document.getElementById("chatColumn");
+      const evidenceColumn = document.getElementById("evidenceColumn");
+      const resizerIntakeChat = document.getElementById("resizerIntakeChat");
+      const resizerChatEvidence = document.getElementById(
+        "resizerChatEvidence",
+      );
+      const columnToggles = [...document.querySelectorAll(".column-toggle")];
+      const collapsedColumnsBar = document.getElementById(
+        "collapsedColumnsBar",
+      );
+      const voiceInputBtn = document.getElementById("voiceInputBtn");
+      const openRagDb = document.getElementById("openRagDb");
+      const refreshRagDb = document.getElementById("refreshRagDb");
+      const ragDbPanel = document.getElementById("ragDbPanel");
+      const ragDbStatus = document.getElementById("ragDbStatus");
+      const ragDbTableBody = document.getElementById("ragDbTableBody");
+      const ragWorkspace = document.getElementById("ragWorkspace");
+      const ragDbDataColumn = document.getElementById("ragDbDataColumn");
+      const graphBuilderColumn = document.getElementById("graphBuilderColumn");
+      const ragWorkspaceResizer = document.getElementById(
+        "ragWorkspaceResizer",
+      );
+      const toggleRagDbData = document.getElementById("toggleRagDbData");
+      const toggleGraphBuilder = document.getElementById("toggleGraphBuilder");
+      const ragWorkspaceCollapsedBar = document.getElementById(
+        "ragWorkspaceCollapsedBar",
+      );
+      const ragDbNaturalFilter = document.getElementById("ragDbNaturalFilter");
+      const ragDbVoiceInputBtn = document.getElementById("ragDbVoiceInputBtn");
+      const ragDbDateFrom = document.getElementById("ragDbDateFrom");
+      const ragDbDateTo = document.getElementById("ragDbDateTo");
+      const ragDbClassFilter = document.getElementById("ragDbClassFilter");
+      const applyRagDbFilters = document.getElementById("applyRagDbFilters");
+      const resetRagDbFilters = document.getElementById("resetRagDbFilters");
+      const closeRagDb = document.getElementById("closeRagDb");
+      const ragDbFilterStatus = document.getElementById("ragDbFilterStatus");
+      const graphSelect = document.getElementById("graphSelect");
+      const createGraphBtn = document.getElementById("createGraphBtn");
+      const graphVersionSelect = document.getElementById("graphVersionSelect");
+      const createDraftBtn = document.getElementById("createDraftBtn");
+      const commitVersionBtn = document.getElementById("commitVersionBtn");
+      const rollbackVersionBtn = document.getElementById("rollbackVersionBtn");
+      const docASelect = document.getElementById("docASelect");
+      const docBSelect = document.getElementById("docBSelect");
+      const relationType = document.getElementById("relationType");
+      const relationNote = document.getElementById("relationNote");
+      const addRelationBtn = document.getElementById("addRelationBtn");
+      const graphStatus = document.getElementById("graphStatus");
+      const graphViewer = document.getElementById("graphViewer");
+      const apiKey = document.getElementById("apiKey");
+      const apiProvider = document.getElementById("apiProvider");
+      const checkConnection = document.getElementById("checkConnection");
+      const connectionStatus = document.getElementById("connectionStatus");
+
+      const settingsToggle = document.getElementById("settingsToggle");
+      const darkModeToggle = document.getElementById("darkModeToggle");
+      const settingsPanel = document.getElementById("settingsPanel");
+      const tokenLimit = document.getElementById("tokenLimit");
+      const enableClassification = document.getElementById(
+        "enableClassification",
+      );
+      const labelOptions = document.getElementById("labelOptions");
+      const selectedLabelsSummary = document.getElementById(
+        "selectedLabelsSummary",
+      );
+      const selectAllLabels = document.getElementById("selectAllLabels");
+      const apiBaseInput = document.getElementById("apiBaseInput");
+      const saveApiBase = document.getElementById("saveApiBase");
+      const apiBaseStatus = document.getElementById("apiBaseStatus");
+
+      const dropZone = document.getElementById("dropZone");
+      const fileInput = document.getElementById("fileInput");
+      const uploadFileList = document.getElementById("uploadFileList");
+      const uploadSubmit = document.getElementById("uploadSubmit");
+      const chunkSize = document.getElementById("chunkSize");
+      const chunkOverlap = document.getElementById("chunkOverlap");
+      const ingestStatus = document.getElementById("ingestStatus");
+
+      const emailForm = document.getElementById("emailForm");
+      const emailRecipient = document.getElementById("emailRecipient");
+      const emailSender = document.getElementById("emailSender");
+      const emailSubject = document.getElementById("emailSubject");
+      const emailBody = document.getElementById("emailBody");
+      const emailStatus = document.getElementById("emailStatus");
+      const emailDropZone = document.getElementById("emailDropZone");
+      const emailAttachments = document.getElementById("emailAttachments");
+      const emailAttachmentList = document.getElementById(
+        "emailAttachmentList",
+      );
+
+      const evidenceStatus = document.getElementById("evidenceStatus");
+      const evidenceBody = document.getElementById("evidenceBody");
+      const evidenceTitle = document.getElementById("evidenceTitle");
+      const evidenceCounter = document.getElementById("evidenceCounter");
+      const evidenceMeta = document.getElementById("evidenceMeta");
+      const sourceViewer = document.getElementById("sourceViewer");
+      const sourceViewerStatus = document.getElementById("sourceViewerStatus");
+      const downloadSourceBtn = document.getElementById("downloadSourceBtn");
+      const previewContent = document.getElementById("previewContent");
+      const previewMeta = document.getElementById("previewMeta");
+      const prevEvidence = document.getElementById("prevEvidence");
+      const nextEvidence = document.getElementById("nextEvidence");
+      const evidenceClassification = document.getElementById(
+        "evidenceClassification",
+      );
+      const classificationLabel = document.getElementById(
+        "classificationLabel",
+      );
+      const classificationConfidence = document.getElementById(
+        "classificationConfidence",
+      );
+      const classificationSnippet = document.getElementById(
+        "classificationSnippet",
+      );
+
+      const setStatus = (el, message, tone = "neutral") => {
+        el.textContent = message;
+        el.dataset.tone = tone;
+      };
+
+      const refreshRagDbWhenVisible = async () => {
+        if (!state.ragDbVisible) return;
+        await applyRagDbFiltersRequest();
+      };
+
+      const updateConnectionButtonState = () => {
+        const hasProvider = Boolean(getSelectedProvider());
+        const hasKey = Boolean(apiKey.value.trim());
+        checkConnection.disabled = !(hasProvider && hasKey);
+        if (!hasProvider || !hasKey) {
+          setStatus(connectionStatus, "Enter model and API key.", "neutral");
+        }
+      };
+
+      const refreshApiBaseCandidates = () => {
+        apiBaseCandidates = buildApiBaseCandidates();
+        activeApiBase = apiBaseCandidates[0] || defaultApiBase;
+      };
+
+      const updateApiBaseUi = () => {
+        const rawConfiguredBase = String(
+          window.localStorage.getItem("rag_api_base") || "",
+        ).trim();
+        const configuredBase = normalizeBase(rawConfiguredBase);
+        apiBaseInput.value = configuredBase;
+        if (configuredBase) {
+          const normalizedHint =
+            configuredBase !== rawConfiguredBase ? " (normalized)" : "";
+          setStatus(
+            apiBaseStatus,
+            `Backend API active: ${configuredBase}${normalizedHint}`,
+            "success",
+          );
+          return;
+        }
+        setStatus(apiBaseStatus, "Empty = automatic detection.", "neutral");
+      };
+
+      const applyColumnLayout = () => {
+        const columns = [
+          { key: "intake", element: intakeColumn, label: "Intake" },
+          { key: "chat", element: chatColumn, label: "Chat" },
+          {
+            key: "evidence",
+            element: evidenceColumn,
+            label: "Evidence Viewer",
+          },
+        ];
+
+        columns.forEach(({ key, element }) => {
+          const isCollapsed = state.layout.collapsed[key];
+          element.hidden = isCollapsed;
+          const toggle = columnToggles.find(
+            (btn) => btn.dataset.column === key,
+          );
+          if (toggle) {
+            toggle.textContent = isCollapsed ? "Ausklappen" : "Collapse";
+            toggle.setAttribute("aria-expanded", String(!isCollapsed));
+          }
+        });
+
+        const visible = columns.filter(
+          ({ key }) => !state.layout.collapsed[key],
+        );
+        const visibleCount = visible.length;
+
+        let intakeWidth = "0px";
+        let chatWidth = "0px";
+        let evidenceWidth = "0px";
+
+        if (visibleCount === 1) {
+          const only = visible[0]?.key;
+          if (only === "intake") intakeWidth = "minmax(0, 1fr)";
+          if (only === "chat") chatWidth = "minmax(0, 1fr)";
+          if (only === "evidence") evidenceWidth = "minmax(0, 1fr)";
+        } else if (visibleCount === 2) {
+          if (!state.layout.collapsed.intake) intakeWidth = "minmax(0, 1fr)";
+          if (!state.layout.collapsed.chat) chatWidth = "minmax(0, 1fr)";
+          if (!state.layout.collapsed.evidence)
+            evidenceWidth = "minmax(0, 1fr)";
+        } else if (visibleCount >= 3) {
+          intakeWidth = `minmax(260px, ${Math.max(0.6, Number(state.layout.widths.intake || 1))}fr)`;
+          chatWidth = `minmax(320px, ${Math.max(0.7, Number(state.layout.widths.chat || 1.15))}fr)`;
+          evidenceWidth = `minmax(260px, ${Math.max(0.6, Number(state.layout.widths.evidence || 1))}fr)`;
+        }
+
+        layout3col.style.setProperty("--col-intake", intakeWidth);
+        layout3col.style.setProperty("--col-chat", chatWidth);
+        layout3col.style.setProperty("--col-evidence", evidenceWidth);
+
+        const showIntakeChatResizer =
+          !state.layout.collapsed.intake && !state.layout.collapsed.chat;
+        const showChatEvidenceResizer =
+          !state.layout.collapsed.chat && !state.layout.collapsed.evidence;
+        resizerIntakeChat.hidden = !showIntakeChatResizer;
+        resizerChatEvidence.hidden = !showChatEvidenceResizer;
+        layout3col.style.setProperty(
+          "--rz-ic",
+          showIntakeChatResizer ? "10px" : "0px",
+        );
+        layout3col.style.setProperty(
+          "--rz-ce",
+          showChatEvidenceResizer ? "10px" : "0px",
+        );
+
+        const hiddenColumns = columns.filter(
+          ({ key }) => state.layout.collapsed[key],
+        );
+        collapsedColumnsBar.innerHTML = "";
+        if (hiddenColumns.length) {
+          hiddenColumns.forEach((column) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "secondary";
+            button.textContent = `${column.label} einblenden`;
+            button.addEventListener("click", () => {
+              state.layout.collapsed[column.key] = false;
+              applyColumnLayout();
+            });
+            collapsedColumnsBar.appendChild(button);
+          });
+          collapsedColumnsBar.hidden = false;
+        } else {
+          collapsedColumnsBar.hidden = true;
+        }
+      };
+
+      const applyRagWorkspaceLayout = () => {
+        if (!state.ragDbVisible) {
+          ragWorkspaceCollapsedBar.hidden = true;
+          return;
+        }
+
+        const sections = [
+          {
+            key: "data",
+            element: ragDbDataColumn,
+            label: "RAG Database",
+            toggle: toggleRagDbData,
+          },
+          {
+            key: "graph",
+            element: graphBuilderColumn,
+            label: "Graph Builder",
+            toggle: toggleGraphBuilder,
+          },
+        ];
+
+        sections.forEach(({ key, element, toggle }) => {
+          const isCollapsed = state.ragWorkspace.collapsed[key];
+          element.hidden = isCollapsed;
+          if (toggle) {
+            toggle.textContent = isCollapsed ? "Ausklappen" : "Collapse";
+            toggle.setAttribute("aria-expanded", String(!isCollapsed));
+          }
+        });
+
+        const visible = sections.filter(
+          ({ key }) => !state.ragWorkspace.collapsed[key],
+        );
+        const visibleCount = visible.length;
+
+        let dataWidth = "0px";
+        let graphWidth = "0px";
+        if (visibleCount >= 2) {
+          dataWidth = `minmax(0, ${Math.max(0.7, Number(state.ragWorkspace.widths.data || 1.15))}fr)`;
+          graphWidth = `minmax(0, ${Math.max(0.7, Number(state.ragWorkspace.widths.graph || 1))}fr)`;
+        } else if (visibleCount === 1) {
+          const only = visible[0]?.key;
+          if (only === "data") dataWidth = "minmax(0, 1fr)";
+          if (only === "graph") graphWidth = "minmax(0, 1fr)";
+        }
+
+        ragWorkspace.style.setProperty("--rag-col-data", dataWidth);
+        ragWorkspace.style.setProperty("--rag-col-graph", graphWidth);
+
+        const showResizer =
+          !state.ragWorkspace.collapsed.data &&
+          !state.ragWorkspace.collapsed.graph;
+        ragWorkspaceResizer.hidden = !showResizer;
+        ragWorkspace.style.setProperty(
+          "--rag-rz",
+          showResizer ? "10px" : "0px",
+        );
+
+        const hiddenSections = sections.filter(
+          ({ key }) => state.ragWorkspace.collapsed[key],
+        );
+        ragWorkspaceCollapsedBar.innerHTML = "";
+        if (hiddenSections.length) {
+          hiddenSections.forEach((section) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "secondary";
+            button.textContent = `${section.label} einblenden`;
+            button.addEventListener("click", () => {
+              state.ragWorkspace.collapsed[section.key] = false;
+              applyRagWorkspaceLayout();
+            });
+            ragWorkspaceCollapsedBar.appendChild(button);
+          });
+          ragWorkspaceCollapsedBar.hidden = false;
+        } else {
+          ragWorkspaceCollapsedBar.hidden = true;
+        }
+      };
+
+      const attachHorizontalResizer = (
+        resizer,
+        container,
+        leftKey,
+        rightKey,
+        stateBucket,
+        applyLayout,
+      ) => {
+        let dragging = false;
+
+        const onMove = (clientX, rect) => {
+          const ratio = (clientX - rect.left) / Math.max(1, rect.width);
+          stateBucket.widths[leftKey] = Math.min(2.8, Math.max(0.7, ratio * 3));
+          stateBucket.widths[rightKey] = Math.min(
+            2.8,
+            Math.max(0.7, (1 - ratio) * 3),
+          );
+          applyLayout();
+        };
+
+        const onPointerMove = (event) => {
+          if (!dragging) return;
+          const rect = container.getBoundingClientRect();
+          onMove(event.clientX, rect);
+        };
+
+        const stopDrag = () => {
+          dragging = false;
+          window.removeEventListener("pointermove", onPointerMove);
+          window.removeEventListener("pointerup", stopDrag);
+        };
+
+        resizer.addEventListener("pointerdown", (event) => {
+          if (window.innerWidth <= 1180) return;
+          dragging = true;
+          event.preventDefault();
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", stopDrag);
+        });
+      };
+
+      const attachResizer = (resizer, leftKey, rightKey) => {
+        let dragging = false;
+
+        const COLUMN_MIN_WIDTHS = {
+          intake: 260,
+          chat: 320,
+          evidence: 260,
+        };
+
+        const getVisibleResizerWidth = (isVisible) => (isVisible ? 10 : 0);
+
+        const onMove = (clientX, layoutRect) => {
+          const isIntakeVisible = !state.layout.collapsed.intake;
+          const isChatVisible = !state.layout.collapsed.chat;
+          const isEvidenceVisible = !state.layout.collapsed.evidence;
+          const visibleResizersWidth =
+            getVisibleResizerWidth(isIntakeVisible && isChatVisible) +
+            getVisibleResizerWidth(isChatVisible && isEvidenceVisible);
+
+          const minimumTotalColumnsWidth =
+            (isIntakeVisible ? COLUMN_MIN_WIDTHS.intake : 0) +
+            (isChatVisible ? COLUMN_MIN_WIDTHS.chat : 0) +
+            (isEvidenceVisible ? COLUMN_MIN_WIDTHS.evidence : 0);
+
+          const availableWidthForColumns =
+            Math.max(1, layoutRect.width - visibleResizersWidth);
+
+          const canHonorMinimums =
+            availableWidthForColumns >= minimumTotalColumnsWidth;
+
+          let minRatio = 0.05;
+          let maxRatio = 0.95;
+
+          if (canHonorMinimums && leftKey === "intake" && rightKey === "chat") {
+            const minLeftPx = COLUMN_MIN_WIDTHS.intake;
+            const minRightPx =
+              COLUMN_MIN_WIDTHS.chat +
+              (isEvidenceVisible ? COLUMN_MIN_WIDTHS.evidence : 0);
+            minRatio = minLeftPx / Math.max(1, layoutRect.width);
+            maxRatio = 1 - minRightPx / Math.max(1, layoutRect.width);
+          }
+
+          if (
+            canHonorMinimums &&
+            leftKey === "chat" &&
+            rightKey === "evidence"
+          ) {
+            const minRightPx = COLUMN_MIN_WIDTHS.evidence;
+            const minLeftPx =
+              COLUMN_MIN_WIDTHS.chat +
+              (isIntakeVisible ? COLUMN_MIN_WIDTHS.intake : 0);
+            minRatio = minLeftPx / Math.max(1, layoutRect.width);
+            maxRatio = 1 - minRightPx / Math.max(1, layoutRect.width);
+          }
+
+          const clampedRatio = Math.min(
+            Math.max(minRatio, (clientX - layoutRect.left) / Math.max(1, layoutRect.width)),
+            maxRatio,
+          );
+
+          if (leftKey === "intake" && rightKey === "chat") {
+            state.layout.widths.intake = Math.min(
+              2.2,
+              Math.max(0.6, clampedRatio * 3),
+            );
+            state.layout.widths.chat = Math.min(
+              2.6,
+              Math.max(0.7, (1 - clampedRatio) * 3),
+            );
+          }
+          if (leftKey === "chat" && rightKey === "evidence") {
+            state.layout.widths.chat = Math.min(
+              2.6,
+              Math.max(0.7, clampedRatio * 3),
+            );
+            state.layout.widths.evidence = Math.min(
+              2.2,
+              Math.max(0.6, (1 - clampedRatio) * 3),
+            );
+          }
+          applyColumnLayout();
+        };
+
+        const onPointerMove = (event) => {
+          if (!dragging) return;
+          const rect = layout3col.getBoundingClientRect();
+          onMove(event.clientX, rect);
+        };
+
+        const stopDrag = () => {
+          dragging = false;
+          window.removeEventListener("pointermove", onPointerMove);
+          window.removeEventListener("pointerup", stopDrag);
+        };
+
+        resizer.addEventListener("pointerdown", (event) => {
+          if (window.innerWidth <= 1180) return;
+          dragging = true;
+          event.preventDefault();
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", stopDrag);
+        });
+      };
+
+      const appendChartToBubble = (bubble, toolPayload) => {
+        const chart = toolPayload?.chart;
+        if (!chart || !chart.svg) return;
+        const wrapper = document.createElement("div");
+        wrapper.className = "chat-chart";
+        wrapper.innerHTML = chart.svg;
+        bubble.appendChild(document.createElement("br"));
+        bubble.appendChild(wrapper);
+      };
+
+      const addMessage = (text, role, options = {}) => {
+        const bubble = document.createElement("div");
+        bubble.className = `chat-bubble ${role}`;
+
+        const referenceMap = options.referenceMap || null;
+        if (role === "assistant" && referenceMap && referenceMap.size) {
+          const citationPattern = /\[(\d+)\]/g;
+          let lastIndex = 0;
+          let match;
+
+          while ((match = citationPattern.exec(text)) !== null) {
+            const [rawCitation, citationNumber] = match;
+            const citationStart = match.index;
+
+            if (citationStart > lastIndex) {
+              bubble.appendChild(
+                document.createTextNode(text.slice(lastIndex, citationStart)),
+              );
+            }
+
+            const evidenceIndex = referenceMap.get(Number(citationNumber));
+            if (typeof evidenceIndex === "number") {
+              const citationButton = document.createElement("button");
+              citationButton.type = "button";
+              citationButton.className = "citation-link";
+              citationButton.textContent = rawCitation;
+              citationButton.dataset.evidenceIndex = String(evidenceIndex);
+              citationButton.title = `Jump to evidence ${rawCitation}`;
+              bubble.appendChild(citationButton);
+            } else {
+              bubble.appendChild(document.createTextNode(rawCitation));
+            }
+
+            lastIndex = citationStart + rawCitation.length;
+          }
+
+          if (lastIndex < text.length) {
+            bubble.appendChild(document.createTextNode(text.slice(lastIndex)));
+          }
+        } else {
+          bubble.textContent = text;
+        }
+
+        if (role === "assistant" && options.toolPayload) {
+          appendChartToBubble(bubble, options.toolPayload);
+        }
+
+        if (role === "assistant" && options.toolName) {
+          const toolLine = document.createElement("p");
+          toolLine.className = "chat-tool-used";
+          toolLine.textContent = `Tool verwendet: ${options.toolName}`;
+          bubble.appendChild(document.createElement("br"));
+          bubble.appendChild(toolLine);
+        }
+
+        chatMessages.appendChild(bubble);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      };
+
+      chatMessages.addEventListener("click", async (event) => {
+        const citationButton = event.target.closest(".citation-link");
+        if (!citationButton) return;
+
+        const index = Number(citationButton.dataset.evidenceIndex);
+        if (
+          !Number.isInteger(index) ||
+          index < 0 ||
+          index >= state.evidence.length
+        )
+          return;
+
+        state.evidenceIndex = index;
+        await renderEvidence();
+      });
+
+      const getSelectedProvider = () => apiProvider.value || "chatgpt";
+
+      const getSelectedLabels = () =>
+        [
+          ...labelOptions.querySelectorAll("input[type='checkbox']:checked"),
+        ].map((checkbox) => checkbox.value);
+
+      const updateSelectedLabelsSummary = () => {
+        const selected = getSelectedLabels();
+        if (!selected.length) {
+          selectedLabelsSummary.textContent =
+            "Selection: all classes (whitelist).";
+          return;
+        }
+        selectedLabelsSummary.textContent = `Auswahl (${selected.length}): ${selected.join(", ")}`;
+      };
+
+      const createLabelOption = (label) => {
+        const wrapper = document.createElement("label");
+        wrapper.className = "label-option-item";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = label;
+        checkbox.addEventListener("change", updateSelectedLabelsSummary);
+
+        const text = document.createElement("span");
+        text.textContent = label;
+
+        wrapper.append(checkbox, text);
+        return wrapper;
+      };
+
+      const normalizeLabels = (labels) => {
+        const normalized = labels
+          .map((label) => String(label || "").trim())
+          .filter(Boolean);
+        return [...new Set(normalized)].sort((a, b) => a.localeCompare(b));
+      };
+
+      const selectAllClassificationLabels = () => {
+        const checkboxes = [
+          ...labelOptions.querySelectorAll("input[type='checkbox']"),
+        ];
+        checkboxes.forEach((checkbox) => {
+          checkbox.checked = true;
+        });
+        updateSelectedLabelsSummary();
+      };
+
+      const callClassification = async (text, storedFilename) => {
+        if (!enableClassification.checked || !text.trim()) return null;
+        const selected = getSelectedLabels();
+        const response = await fetchApi("/classification/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            stored_filename: storedFilename,
+            labels: selected.length ? selected : null,
+            api_key: apiKey.value.trim() || null,
+            provider: getSelectedProvider(),
+          }),
+        });
+        const payload = await response.json();
+        return response.ok ? payload : null;
+      };
+
+
+      const escapeHtml = (value) =>
+        String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+
+      const buildThreeViewerHtml = (sourceUrl, storedFilename, sourceExtension) => {
+        const safeUrl = JSON.stringify(sourceUrl);
+        const safeName = escapeHtml(storedFilename);
+        const safeExt = JSON.stringify(sourceExtension || "");
+        return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1020; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
+      #viewer { width: 100%; height: 100%; }
+      #status { position: absolute; top: 8px; left: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; max-width: 85%; }
+      #hint { position: absolute; right: 8px; bottom: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="status">Loading 3D model: ${safeName}</div>
+    <div id="hint">Drag: rotate · Wheel: zoom · Right-drag: pan</div>
+    <div id="viewer"></div>
+    <script type="module">
+      const status = document.getElementById('status');
+      const container = document.getElementById('viewer');
+      const sourceUrl = ${safeUrl};
+      const sourceExtension = ${safeExt};
+      const normalizedExt = String(sourceExtension || '').toLowerCase().replace(/^\./, '');
+      const extFromUrl = sourceUrl.toLowerCase().split('?')[0].split('.').pop();
+      const ext = normalizedExt || extFromUrl;
+
+
+      const renderObjFallback = async (url) => {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error('OBJ fallback download failed: ' + response.status);
+        }
+
+        const text = await response.text();
+        const vertices = [];
+        const edges = [];
+        const lines = text.split(/\r?\n/);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          if (trimmed.startsWith('v ')) {
+            const parts = trimmed.split(/\s+/);
+            if (parts.length >= 4) {
+              vertices.push([Number(parts[1]) || 0, Number(parts[2]) || 0, Number(parts[3]) || 0]);
+            }
+            continue;
+          }
+          if (trimmed.startsWith('f ')) {
+            const parts = trimmed.split(/\s+/).slice(1);
+            const idx = parts
+              .map((token) => {
+                const base = token.split('/')[0];
+                const parsed = Number(base);
+                if (!Number.isFinite(parsed) || parsed === 0) return null;
+                return parsed > 0 ? parsed - 1 : vertices.length + parsed;
+              })
+              .filter((value) => value !== null);
+            if (idx.length >= 2) {
+              for (let i = 0; i < idx.length; i += 1) {
+                const a = idx[i];
+                const b = idx[(i + 1) % idx.length];
+                if (a !== b) edges.push([a, b]);
+              }
+            }
+          }
+        }
+
+        if (vertices.length === 0 || edges.length === 0) {
+          throw new Error('OBJ fallback parser found no renderable geometry.');
+        }
+
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        for (const [x, y, z] of vertices) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          if (z > maxZ) maxZ = z;
+        }
+
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const cz = (minZ + maxZ) / 2;
+        const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
+
+        const canvas = document.createElement('canvas');
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.touchAction = 'none';
+        container.appendChild(canvas);
+        const ctx = canvas.getContext('2d');
+
+        const state = { yaw: 0.6, pitch: 0.45, scale: 1.1, panX: 0, panY: 0 };
+        let dragMode = null;
+        let lastX = 0;
+        let lastY = 0;
+
+        const resize = () => {
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.max(1, Math.floor(container.clientWidth * dpr));
+          canvas.height = Math.max(1, Math.floor(container.clientHeight * dpr));
+          draw();
+        };
+
+        const project = (x, y, z, width, height) => {
+          const nx = (x - cx) / span;
+          const ny = (y - cy) / span;
+          const nz = (z - cz) / span;
+          const cosY = Math.cos(state.yaw);
+          const sinY = Math.sin(state.yaw);
+          const cosP = Math.cos(state.pitch);
+          const sinP = Math.sin(state.pitch);
+          const rx = nx * cosY - nz * sinY;
+          const rz = nx * sinY + nz * cosY;
+          const ry = ny * cosP - rz * sinP;
+          const depth = ry * sinP + rz * cosP;
+          const zoom = (Math.min(width, height) * 0.8 * state.scale);
+          const px = width / 2 + rx * zoom + state.panX;
+          const py = height / 2 - ry * zoom + state.panY;
+          return { px, py, depth };
+        };
+
+        const draw = () => {
+          const width = canvas.width;
+          const height = canvas.height;
+          ctx.clearRect(0, 0, width, height);
+          ctx.fillStyle = '#0b1020';
+          ctx.fillRect(0, 0, width, height);
+
+          const projected = vertices.map(([x, y, z]) => project(x, y, z, width, height));
+          ctx.strokeStyle = '#7dd3fc';
+          ctx.lineWidth = Math.max(1, (window.devicePixelRatio || 1));
+          ctx.beginPath();
+          for (const [a, b] of edges) {
+            const pa = projected[a];
+            const pb = projected[b];
+            if (!pa || !pb) continue;
+            ctx.moveTo(pa.px, pa.py);
+            ctx.lineTo(pb.px, pb.py);
+          }
+          ctx.stroke();
+        };
+
+        canvas.addEventListener('pointerdown', (event) => {
+          dragMode = event.button === 2 ? 'pan' : 'rotate';
+          lastX = event.clientX;
+          lastY = event.clientY;
+          canvas.setPointerCapture(event.pointerId);
+        });
+        canvas.addEventListener('pointerup', (event) => {
+          dragMode = null;
+          canvas.releasePointerCapture(event.pointerId);
+        });
+        canvas.addEventListener('pointermove', (event) => {
+          if (!dragMode) return;
+          const dx = event.clientX - lastX;
+          const dy = event.clientY - lastY;
+          lastX = event.clientX;
+          lastY = event.clientY;
+          if (dragMode === 'rotate') {
+            state.yaw += dx * 0.01;
+            state.pitch = Math.max(-1.4, Math.min(1.4, state.pitch + dy * 0.01));
+          } else {
+            state.panX += dx * (window.devicePixelRatio || 1);
+            state.panY += dy * (window.devicePixelRatio || 1);
+          }
+          draw();
+        });
+        canvas.addEventListener('wheel', (event) => {
+          event.preventDefault();
+          const delta = event.deltaY > 0 ? 0.92 : 1.08;
+          state.scale = Math.max(0.2, Math.min(8, state.scale * delta));
+          draw();
+        }, { passive: false });
+        canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+        window.addEventListener('resize', resize);
+
+        resize();
+      };
+
+
+      const bootstrap = async () => {
+        let THREE;
+        let OrbitControls;
+        let OBJLoader;
+        let STLLoader;
+        let PLYLoader;
+        let GLTFLoader;
+
+        const importFirstAvailable = async (urls) => {
+          let lastError = null;
+          for (const url of urls) {
+            try {
+              return await import(url);
+            } catch (error) {
+              lastError = error;
+            }
+          }
+          throw lastError || new Error('No import URL available.');
+        };
+
+        const buildThreeUrls = (path) => [
+          'https://unpkg.com/three@0.160.1/' + path,
+          'https://cdn.jsdelivr.net/npm/three@0.160.1/' + path,
+          'https://esm.sh/three@0.160.1/' + path,
+        ];
+
+        try {
+          const [threeMod, controlsMod, objMod, stlMod, plyMod, gltfMod] = await Promise.all([
+            importFirstAvailable(buildThreeUrls('build/three.module.js')),
+            importFirstAvailable(buildThreeUrls('examples/jsm/controls/OrbitControls.js')),
+            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/OBJLoader.js')),
+            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/STLLoader.js')),
+            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/PLYLoader.js')),
+            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/GLTFLoader.js')),
+          ]);
+          THREE = threeMod;
+          OrbitControls = controlsMod.OrbitControls;
+          OBJLoader = objMod.OBJLoader;
+          STLLoader = stlMod.STLLoader;
+          PLYLoader = plyMod.PLYLoader;
+          GLTFLoader = gltfMod.GLTFLoader;
+        } catch (err) {
+          console.error(err);
+          if (ext === 'obj') {
+            try {
+              await renderObjFallback(sourceUrl);
+              status.textContent = 'Offline OBJ fallback active (wireframe preview).';
+              return;
+            } catch (fallbackError) {
+              console.error(fallbackError);
+            }
+          }
+          status.textContent = 'Viewer dependencies could not be loaded (offline/CSP). OBJ has a basic fallback, otherwise use Download.';
+          return;
+        }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b1020);
+        const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 2000);
+        camera.position.set(2.2, 2.2, 2.2);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x111827, 0.9));
+        const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+        dir.position.set(4, 8, 6);
+        scene.add(dir);
+        scene.add(new THREE.GridHelper(10, 10, 0x334155, 0x1f2937));
+        scene.add(new THREE.AxesHelper(2));
+
+        const fitCameraToObject = (object3d) => {
+          const box = new THREE.Box3().setFromObject(object3d);
+          const size = box.getSize(new THREE.Vector3());
+          const center = box.getCenter(new THREE.Vector3());
+          const radius = Math.max(size.x, size.y, size.z) * 0.6 || 1;
+          camera.near = Math.max(radius / 1000, 0.001);
+          camera.far = Math.max(radius * 100, 1000);
+          camera.position.set(center.x + radius * 1.8, center.y + radius * 1.3, center.z + radius * 1.8);
+          camera.lookAt(center);
+          camera.updateProjectionMatrix();
+          controls.target.copy(center);
+          controls.update();
+        };
+
+        const onLoaded = (object3d) => {
+          scene.add(object3d);
+          fitCameraToObject(object3d);
+          status.textContent = '3D model loaded successfully.';
+        };
+
+        const onError = (err) => {
+          console.error(err);
+          status.textContent = 'Could not load 3D model for preview.';
+        };
+
+        const loaderProgress = (event) => {
+          if (event && event.total > 0) {
+            const ratio = Math.min(100, Math.round((event.loaded / event.total) * 100));
+            status.textContent = 'Loading 3D model: ' + ratio + '%';
+          } else {
+            status.textContent = 'Loading 3D model...';
+          }
+        };
+
+        const makeMesh = (geometry) => {
+          geometry.computeVertexNormals();
+          return new THREE.Mesh(
+            geometry,
+            new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 })
+          );
+        };
+
+        try {
+          if (ext === 'glb' || ext === 'gltf') {
+            status.textContent = 'Loading canonical GLB/GLTF...';
+            new GLTFLoader().load(sourceUrl, (gltf) => onLoaded(gltf.scene), loaderProgress, onError);
+          } else if (ext === 'obj') {
+            status.textContent = 'Loading OBJ model...';
+            new OBJLoader().load(sourceUrl, (obj) => {
+              onLoaded(obj);
+            }, loaderProgress, onError);
+          } else if (ext === 'stl') {
+            status.textContent = 'Loading STL model...';
+            new STLLoader().load(sourceUrl, (geometry) => {
+              onLoaded(makeMesh(geometry));
+            }, loaderProgress, onError);
+          } else if (ext === 'ply') {
+            status.textContent = 'Loading PLY point cloud...';
+            new PLYLoader().load(sourceUrl, (geometry) => {
+              const hasColor = !!geometry.getAttribute('color');
+              const mat = new THREE.PointsMaterial({ size: 0.02, vertexColors: hasColor, color: hasColor ? 0xffffff : 0x93c5fd });
+              onLoaded(new THREE.Points(geometry, mat));
+            }, loaderProgress, onError);
+          } else {
+            status.textContent = 'Unsupported 3D format for this viewer.';
+          }
+        } catch (err) {
+          onError(err);
+        }
+
+        const animate = () => {
+          requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+        };
+        animate();
+
+        window.addEventListener('resize', () => {
+          camera.aspect = container.clientWidth / container.clientHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(container.clientWidth, container.clientHeight);
+        });
+      };
+
+      bootstrap();
+    <\/script>
+  </body>
+</html>`;
+      };
+
+      const threeViewerFrameCache = new Map();
+
+      const renderSourceViewer = (storedFilename, sourceInfo, chunk) => {
+        sourceViewer.innerHTML = "";
+        sourceViewer.hidden = true;
+        sourceViewerStatus.hidden = true;
+        sourceViewerStatus.textContent = "";
+        downloadSourceBtn.hidden = true;
+
+        if (!sourceInfo || sourceInfo.status !== "success") {
+          sourceViewerStatus.hidden = false;
+          sourceViewerStatus.textContent = "Original file not available.";
+          return;
+        }
+
+        const kind = sourceInfo.source_kind;
+        const encodedFilename = encodeURIComponent(storedFilename);
+        const sourceUrl = apiPath(`/documents/source-file/${encodedFilename}`);
+        const viewerSourceUrl = apiPath(`/documents/source-file/${encodedFilename}?viewer=1`);
+        const downloadUrl = apiPath(
+          `/documents/source-file/${encodedFilename}?download=1`,
+        );
+
+        downloadSourceBtn.hidden = false;
+        downloadSourceBtn.onclick = () => {
+          const anchor = document.createElement("a");
+          anchor.href = downloadUrl;
+          anchor.download = storedFilename;
+          anchor.rel = "noopener";
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+        };
+
+        if (kind === "pdf") {
+          const frame = document.createElement("iframe");
+          frame.className = "source-viewer-frame";
+          frame.src = sourceUrl;
+          frame.title = `PDF Viewer ${storedFilename}`;
+          sourceViewer.appendChild(frame);
+          sourceViewer.hidden = false;
+        } else if (kind === "image") {
+          const image = document.createElement("img");
+          image.className = "source-viewer-image";
+          image.src = sourceUrl;
+          image.alt = storedFilename;
+          sourceViewer.appendChild(image);
+          sourceViewer.hidden = false;
+        } else if (kind === "3d") {
+          const cachedFrame = threeViewerFrameCache.get(storedFilename);
+          const frame = cachedFrame || document.createElement("iframe");
+          frame.className = "source-viewer-frame source-viewer-3d";
+          frame.setAttribute("allow", "fullscreen; xr-spatial-tracking");
+          frame.title = `3D Viewer ${storedFilename}`;
+          const frameSource = `${storedFilename}::${viewerSourceUrl}`;
+          if (!cachedFrame || frame.dataset.sourceId !== frameSource) {
+            frame.srcdoc = buildThreeViewerHtml(
+              viewerSourceUrl,
+              storedFilename,
+              sourceInfo.viewer_source_extension || sourceInfo.source_extension || "",
+            );
+            frame.dataset.sourceId = frameSource;
+            threeViewerFrameCache.set(storedFilename, frame);
+          }
+          sourceViewer.appendChild(frame);
+          sourceViewer.hidden = false;
+        } else {
+          sourceViewerStatus.hidden = false;
+          sourceViewerStatus.textContent =
+            "Original format cannot be displayed directly here (e.g., DOCX/TXT).";
+        }
+
+        const chunkId = chunk?.chunk_id || "n/a";
+        const chunkIndex = Number.isInteger(chunk?.chunk_index)
+          ? chunk.chunk_index
+          : "n/a";
+        previewMeta.textContent = `Referenz (Chunk ID: ${chunkId}, Index: ${chunkIndex})`;
+      };
+
+      const loadPreview = async (storedFilename, chunk) => {
+        const sourceInfoResponse = await fetchApi(
+          `/documents/source-info/${encodeURIComponent(storedFilename)}`,
+        );
+
+        const sourceInfoPayload = await sourceInfoResponse.json();
+        renderSourceViewer(storedFilename, sourceInfoPayload, chunk);
+
+        previewContent.textContent =
+          (chunk?.text || "").trim() || "No chunk content available.";
+      };
+
+      const renderEvidence = async () => {
+        if (!state.evidence.length) {
+          evidenceBody.hidden = true;
+          evidenceStatus.textContent = "No evidence available yet.";
+          return;
+        }
+
+        evidenceBody.hidden = false;
+        evidenceStatus.textContent = "";
+
+        const item = state.evidence[state.evidenceIndex];
+        evidenceTitle.textContent =
+          item.stored_filename || "Unbekanntes Document";
+        evidenceCounter.textContent = `${state.evidenceIndex + 1} / ${state.evidence.length}`;
+        const chunkIndexText = Number.isInteger(item.chunk_index)
+          ? `Chunk #${item.chunk_index}`
+          : "Documentansicht";
+        const scoreText =
+          typeof item.score === "number"
+            ? Number(item.score).toFixed(3)
+            : "n/a";
+        evidenceMeta.textContent = `${chunkIndexText} · Score ${scoreText} · Confidence ${item.confidence_hint || "n/a"}`;
+        await loadPreview(item.stored_filename, item);
+
+        prevEvidence.disabled = state.evidenceIndex === 0;
+        nextEvidence.disabled =
+          state.evidenceIndex >= state.evidence.length - 1;
+
+        if (enableClassification.checked && state.lastClassification) {
+          evidenceClassification.hidden = false;
+          classificationLabel.textContent =
+            state.lastClassification.label || "—";
+          classificationConfidence.textContent =
+            typeof state.lastClassification.confidence === "number"
+              ? `${Math.round(state.lastClassification.confidence * 100)}%`
+              : "—";
+          classificationSnippet.textContent = item.text || "";
+        } else {
+          evidenceClassification.hidden = true;
+        }
+      };
+
+      const renderFileList = (files, target) => {
+        target.innerHTML = "";
+        files.forEach((file) => {
+          const li = document.createElement("li");
+          li.textContent = file.name;
+          target.appendChild(li);
+        });
+      };
+
+      const collectFiles = (event, key, target) => {
+        const incoming = [...event];
+        state[key] = [...state[key], ...incoming];
+        renderFileList(state[key], target);
+      };
+
+      const attachDropHandlers = (zone, picker, key, target) => {
+        zone.addEventListener("click", () => picker.click());
+        zone.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            picker.click();
+          }
+        });
+        picker.addEventListener("change", () =>
+          collectFiles(picker.files, key, target),
+        );
+        ["dragenter", "dragover"].forEach((evt) =>
+          zone.addEventListener(evt, (event) => {
+            event.preventDefault();
+            zone.classList.add("active");
+          }),
+        );
+        ["dragleave", "drop"].forEach((evt) =>
+          zone.addEventListener(evt, (event) => {
+            event.preventDefault();
+            zone.classList.remove("active");
+          }),
+        );
+        zone.addEventListener("drop", (event) =>
+          collectFiles(event.dataTransfer.files, key, target),
+        );
+      };
+
+      const loadFrontendConfig = async () => {
+        try {
+          const response = await fetchApi("/config/frontend");
+          const payload = await response.json();
+          emailRecipient.value =
+            payload.default_email_recipient || "rag-inbox@example.local";
+        } catch {
+          emailRecipient.value = "rag-inbox@example.local";
+        }
+      };
+
+      const loadClassificationLabels = async () => {
+        labelOptions.innerHTML = "";
+
+        const appendLabels = (labels) => {
+          normalizeLabels(labels).forEach((label) =>
+            labelOptions.appendChild(createLabelOption(label)),
+          );
+          updateSelectedLabelsSummary();
+        };
+
+        try {
+          const response = await fetchApi("/classification/labels");
+          const payload = await response.json();
+          if (
+            response.ok &&
+            Array.isArray(payload.labels) &&
+            payload.labels.length
+          ) {
+            appendLabels(payload.labels);
+            return;
+          }
+        } catch {
+          // fallback handled below
+        }
+
+        try {
+          const fallbackResponse = await fetch(
+            "/data/classification_labels.json",
+          );
+          const fallbackLabels = await fallbackResponse.json();
+          if (
+            fallbackResponse.ok &&
+            Array.isArray(fallbackLabels) &&
+            fallbackLabels.length
+          ) {
+            appendLabels(fallbackLabels);
+            setStatus(
+              ragStatus,
+              "Backend labels unavailable – loaded local default classes.",
+              "warning",
+            );
+            return;
+          }
+        } catch {
+          // final fallback below
+        }
+
+        appendLabels(DEFAULT_BUSINESS_LABELS);
+        setStatus(
+          ragStatus,
+          "Could not load labels – predefined business classes are active.",
+          "warning",
+        );
+      };
+
+      const showDocumentInEvidence = async (storedFilename) => {
+        if (!storedFilename) return;
+        if (state.layout.collapsed.evidence) {
+          state.layout.collapsed.evidence = false;
+          applyColumnLayout();
+        }
+        try {
+          const response = await fetchApi(
+            `/documents/chunks/${encodeURIComponent(storedFilename)}`,
+          );
+          const payload = await response.json();
+          if (
+            response.ok &&
+            Array.isArray(payload.results) &&
+            payload.results.length
+          ) {
+            state.evidence = payload.results;
+          } else {
+            state.evidence = [
+              { stored_filename: storedFilename, confidence_hint: "manual" },
+            ];
+          }
+        } catch {
+          state.evidence = [
+            { stored_filename: storedFilename, confidence_hint: "manual" },
+          ];
+        }
+        state.evidenceIndex = 0;
+        await renderEvidence();
+      };
+
+      const renderRagDbOverview = (overview) => {
+        const docs = overview?.documents || [];
+        if (!docs.length) {
+          ragDbTableBody.innerHTML =
+            '<tr><td colspan="10" class="helper">No documents in the RAG index.</td></tr>';
+          return;
+        }
+
+        ragDbTableBody.innerHTML = "";
+
+        const appendCell = (row, text) => {
+          const cell = document.createElement("td");
+          cell.textContent = text;
+          row.appendChild(cell);
+        };
+
+        docs.forEach((doc) => {
+          const storedFilename = String(doc.stored_filename || "");
+          const row = document.createElement("tr");
+          row.className = "rag-doc-row";
+          row.dataset.storedFilename = storedFilename;
+
+          const classification = doc.classification || {};
+          const classText = classification.label
+            ? `${classification.label} (${typeof classification.confidence === "number" ? Math.round(classification.confidence * 100) + "%" : "n/a"})`
+            : "None";
+
+          appendCell(row, storedFilename || "Unbekannt");
+          appendCell(row, doc.source_filename || "—");
+          appendCell(row, doc.source_type || "—");
+          appendCell(
+            row,
+            `${doc.size_bytes || 0} B · ${doc.source_timestamp || "n/a"}`,
+          );
+          appendCell(row, doc.index_status || "indexed");
+          appendCell(row, classText);
+          appendCell(row, String(doc.chunk_count || 0));
+          appendCell(row, String(doc.embedding_dimensions || 0));
+          appendCell(row, doc.indexed_at || "n/a");
+
+          const actionCell = document.createElement("td");
+          actionCell.className = "rag-actions-cell";
+          const openButton = document.createElement("button");
+          openButton.type = "button";
+          openButton.className = "secondary rag-open-btn";
+          openButton.textContent = "Chunks";
+          openButton.dataset.storedFilename = storedFilename;
+
+          const downloadButton = document.createElement("button");
+          downloadButton.type = "button";
+          downloadButton.className = "secondary rag-download-btn";
+          downloadButton.textContent = "Download";
+          downloadButton.dataset.storedFilename = storedFilename;
+
+          actionCell.append(openButton, downloadButton);
+          row.appendChild(actionCell);
+          ragDbTableBody.appendChild(row);
+        });
+
+        const openDocument = async (storedFilename) => {
+          if (!storedFilename) return;
+          await showDocumentInEvidence(storedFilename);
+          evidenceBody.scrollIntoView({ behavior: "smooth", block: "start" });
+        };
+
+        [...ragDbTableBody.querySelectorAll(".rag-doc-row")].forEach((row) => {
+          row.addEventListener("click", async () => {
+            const storedFilename = row.dataset.storedFilename || "";
+            await openDocument(storedFilename);
+          });
+        });
+
+        [...ragDbTableBody.querySelectorAll(".rag-open-btn")].forEach(
+          (button) => {
+            button.addEventListener("click", async (event) => {
+              event.stopPropagation();
+              await openDocument(button.dataset.storedFilename || "");
+            });
+          },
+        );
+
+        [...ragDbTableBody.querySelectorAll(".rag-download-btn")].forEach(
+          (button) => {
+            button.addEventListener("click", (event) => {
+              event.stopPropagation();
+              const storedFilename = button.dataset.storedFilename || "";
+              if (!storedFilename) return;
+              const encoded = encodeURIComponent(storedFilename);
+              const anchor = document.createElement("a");
+              anchor.href = apiPath(
+                `/documents/source-file/${encoded}?download=1`,
+              );
+              anchor.download = storedFilename;
+              anchor.rel = "noopener";
+              document.body.appendChild(anchor);
+              anchor.click();
+              anchor.remove();
+            });
+          },
+        );
+      };
+
+      const loadRagDbOverview = async () => {
+        setStatus(ragDbStatus, "Lade RAG-Index...", "neutral");
+        try {
+          const response = await fetchApi(
+            "/rag/store-overview?max_chunks_per_document=4",
+          );
+          const payload = await response.json();
+          if (!response.ok) {
+            setStatus(
+              ragDbStatus,
+              payload.message || "Could not load RAG index.",
+              "error",
+            );
+            return;
+          }
+
+          const overview = payload.overview || {};
+          renderRagDbOverview(overview);
+          setStatus(
+            ragDbStatus,
+            `${overview.document_count || 0} Document(e), ${overview.total_chunks || 0} chunk(s) in index.`,
+            "success",
+          );
+          setStatus(ragDbFilterStatus, "No filters active.", "neutral");
+        } catch {
+          setStatus(ragDbStatus, "Backend unreachable.", "error");
+        }
+      };
+
+      const applyRagDbFiltersRequest = async () => {
+        setStatus(ragDbFilterStatus, "Applying filters...", "neutral");
+        try {
+          const response = await fetchApi("/rag/store-overview/filter", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: ragDbNaturalFilter.value.trim() || null,
+              date_from: ragDbDateFrom.value
+                ? `${ragDbDateFrom.value}T00:00:00+00:00`
+                : null,
+              date_to: ragDbDateTo.value
+                ? `${ragDbDateTo.value}T23:59:59+00:00`
+                : null,
+              classification: ragDbClassFilter.value.trim() || null,
+              api_key: apiKey.value.trim() || null,
+              provider: getSelectedProvider(),
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            setStatus(
+              ragDbFilterStatus,
+              payload.message || "Filtering failed.",
+              "error",
+            );
+            return;
+          }
+
+          const overview = payload.overview || {};
+          renderRagDbOverview(overview);
+          setStatus(
+            ragDbStatus,
+            `${overview.document_count || 0} Treffer, ${overview.total_chunks || 0} Chunk(s).`,
+            "success",
+          );
+          setStatus(
+            ragDbFilterStatus,
+            `Filters active: ${payload.filters?.text_query || "(no text filter)"} · Month: ${payload.filters?.month || "-"} · Year: ${payload.filters?.year || "-"}`,
+            "success",
+          );
+        } catch {
+          setStatus(ragDbFilterStatus, "Backend unreachable.", "error");
+        }
+      };
+
+      const shortLabel = (value) => {
+        const text = String(value || "");
+        return text.length > 22 ? `${text.slice(0, 19)}...` : text;
+      };
+
+      const shouldUseAutoLayout = (nodes, layoutPositions) => {
+        if (!nodes.length) return false;
+        if (!layoutPositions || Object.keys(layoutPositions).length === 0)
+          return true;
+
+        const points = nodes.map((node) => {
+          const pos = layoutPositions[node.node_id];
+          return {
+            x: Number(pos?.[0] ?? NaN),
+            y: Number(pos?.[1] ?? NaN),
+          };
+        });
+
+        if (
+          points.some(
+            (point) => !Number.isFinite(point.x) || !Number.isFinite(point.y),
+          )
+        ) {
+          return true;
+        }
+
+        const uniquePoints = new Set(
+          points.map(
+            (point) => `${Math.round(point.x)}:${Math.round(point.y)}`,
+          ),
+        );
+        if (uniquePoints.size <= Math.max(1, Math.floor(nodes.length / 2))) {
+          return true;
+        }
+
+        const minimumGap = 28;
+        for (let i = 0; i < points.length; i += 1) {
+          for (let j = i + 1; j < points.length; j += 1) {
+            const dx = points[i].x - points[j].x;
+            const dy = points[i].y - points[j].y;
+            if (Math.hypot(dx, dy) < minimumGap) return true;
+          }
+        }
+
+        return false;
+      };
+
+      const ensureCy = () => {
+        if (state.graph.cy) return state.graph.cy;
+        if (typeof cytoscape === "undefined") {
+          setStatus(
+            graphStatus,
+            "Graph renderer unavailable (Cytoscape missing).",
+            "error",
+          );
+          return null;
+        }
+
+        const cy = cytoscape({
+          container: graphViewer,
+          elements: [],
+          layout: { name: "preset" },
+          style: [
+            {
+              selector: "node",
+              style: {
+                label: "data(shortLabel)",
+                "background-color": "#1d4ed8",
+                color: "#fff",
+                "font-size": 10,
+                width: 34,
+                height: 34,
+                "text-valign": "bottom",
+                "text-halign": "center",
+                "text-margin-y": 8,
+                "text-wrap": "wrap",
+                "text-max-width": 110,
+                "overlay-opacity": 0,
+              },
+            },
+            {
+              selector: "edge",
+              style: {
+                width: 2,
+                "line-color": "#94a3b8",
+                "target-arrow-shape": "triangle",
+                "target-arrow-color": "#94a3b8",
+                "curve-style": "bezier",
+                label: "data(type)",
+                "font-size": 9,
+                "text-background-color": "#fff",
+                "text-background-opacity": 0.8,
+                "text-background-padding": 2,
+                "text-rotation": "autorotate",
+              },
+            },
+            { selector: ".dragging", style: { "background-color": "#ef4444" } },
+          ],
+        });
+
+        cy.on("tap", "node", async (event) => {
+          const docId = event.target.data("docId");
+          if (docId) {
+            await showDocumentInEvidence(docId);
+          }
+        });
+
+        cy.on("mouseover", "node", (event) => {
+          setStatus(
+            graphStatus,
+            `Node: ${event.target.data("label")}`,
+            "neutral",
+          );
+        });
+        cy.on("mouseover", "edge", (event) => {
+          const source =
+            event.target.data("sourceDoc") || event.target.source().id();
+          const target =
+            event.target.data("targetDoc") || event.target.target().id();
+          setStatus(
+            graphStatus,
+            `Edge: ${source} -> ${target} (${event.target.data("type")})`,
+            "neutral",
+          );
+        });
+
+        cy.on("dragfree", "node", (event) => {
+          const node = event.target;
+          node.addClass("dragging");
+          const targetX = Number(node.data("layoutX") || 0);
+          const targetY = Number(node.data("layoutY") || 0);
+          const startX = node.position("x");
+          const startY = node.position("y");
+          const durationMs = 280;
+          const start = performance.now();
+
+          const animate = (now) => {
+            const elapsed = now - start;
+            const t = Math.max(0, Math.min(1, elapsed / durationMs));
+            const ease = 1 - Math.pow(1 - t, 3);
+            node.position({
+              x: startX + (targetX - startX) * ease,
+              y: startY + (targetY - startY) * ease,
+            });
+            if (t < 1) {
+              requestAnimationFrame(animate);
+            } else {
+              node.removeClass("dragging");
+              cy.fit(undefined, 36);
+            }
+          };
+
+          requestAnimationFrame(animate);
+        });
+
+        state.graph.cy = cy;
+        return cy;
+      };
+
+      const renderGraph = (view) => {
+        const cy = ensureCy();
+        if (!cy) return;
+
+        const positions = view.layout_positions || {};
+        const autoLayout = shouldUseAutoLayout(view.nodes || [], positions);
+        const nodeMap = new Map(
+          (view.nodes || []).map((node) => [node.node_id, node]),
+        );
+        const fallbackRadius = Math.max(120, (view.nodes || []).length * 24);
+        const elements = [
+          ...(view.nodes || []).map((node, index) => {
+            const angle =
+              ((Math.PI * 2) / Math.max(1, (view.nodes || []).length)) * index;
+            const fallbackPos = [
+              Math.cos(angle) * fallbackRadius,
+              Math.sin(angle) * fallbackRadius,
+            ];
+            const pos = autoLayout
+              ? fallbackPos
+              : positions[node.node_id] || fallbackPos;
+            return {
+              data: {
+                id: node.node_id,
+                label: node.label || node.doc_id,
+                shortLabel: shortLabel(node.label || node.doc_id),
+                docId: node.doc_id,
+                layoutX: Number(pos[0] || 0),
+                layoutY: Number(pos[1] || 0),
+              },
+              position: { x: Number(pos[0] || 0), y: Number(pos[1] || 0) },
+            };
+          }),
+          ...(view.edges || []).map((edge) => ({
+            data: {
+              id: edge.edge_id,
+              source: edge.source_node_id,
+              target: edge.target_node_id,
+              type: edge.type,
+              sourceDoc: nodeMap.get(edge.source_node_id)?.doc_id || "",
+              targetDoc: nodeMap.get(edge.target_node_id)?.doc_id || "",
+            },
+          })),
+        ];
+
+        cy.elements().remove();
+        cy.add(elements);
+        cy.nodes().forEach((node) => {
+          node.grabify();
+        });
+
+        if (autoLayout) {
+          cy.layout({
+            name: "cose",
+            animate: false,
+            fit: true,
+            padding: 46,
+            nodeOverlap: 80,
+            idealEdgeLength: 120,
+            nodeRepulsion: 600000,
+            edgeElasticity: 90,
+            componentSpacing: 120,
+            numIter: 1000,
+          }).run();
+        } else {
+          cy.layout({ name: "preset", fit: true, padding: 46 }).run();
+        }
+
+        state.graph.documents = view.document_options || [];
+        const buildOptions = (select) => {
+          const current = select.value;
+          select.innerHTML = "";
+          state.graph.documents.forEach((doc) => {
+            const option = document.createElement("option");
+            option.value = doc.doc_id;
+            option.textContent = `${doc.label} (${doc.doc_id})`;
+            select.appendChild(option);
+          });
+          if (
+            current &&
+            [...select.options].some((entry) => entry.value === current)
+          ) {
+            select.value = current;
+          }
+        };
+        buildOptions(docASelect);
+        buildOptions(docBSelect);
+
+        setStatus(
+          graphStatus,
+          `Graph loaded: ${view.nodes.length} Node(s), ${view.edges.length} Edge(s), Layout: ${view.layout_algo}.`,
+          "success",
+        );
+      };
+
+      const updateChatGraphSelect = () => {
+        const currentValue = chatGraphSelect.value;
+        chatGraphSelect.innerHTML = "";
+
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = "Default (all documents)";
+        chatGraphSelect.appendChild(defaultOption);
+
+        (state.graph.allGraphs || []).forEach((graph) => {
+          (graph.versions || []).forEach((version) => {
+            const option = document.createElement("option");
+            option.value = `${graph.graph_id}::${version.version_id}`;
+            option.textContent = `${graph.name} → ${version.name} [${version.status}]`;
+            chatGraphSelect.appendChild(option);
+          });
+        });
+
+        if (
+          currentValue &&
+          [...chatGraphSelect.options].some(
+            (entry) => entry.value === currentValue,
+          )
+        ) {
+          chatGraphSelect.value = currentValue;
+        } else if (
+          state.chatGraphSelection.graphId &&
+          state.chatGraphSelection.versionId
+        ) {
+          const selectedValue = `${state.chatGraphSelection.graphId}::${state.chatGraphSelection.versionId}`;
+          if (
+            [...chatGraphSelect.options].some(
+              (entry) => entry.value === selectedValue,
+            )
+          ) {
+            chatGraphSelect.value = selectedValue;
+          }
+        }
+      };
+
+      const loadGraphVersions = async (graphId) => {
+        const response = await fetchApi(
+          `/graphs/${encodeURIComponent(graphId)}/versions`,
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Could not load versions.",
+            "error",
+          );
+          return;
+        }
+
+        state.graph.versions = payload.versions || [];
+        state.graph.versionId =
+          payload.active_version_id ||
+          state.graph.versions[0]?.version_id ||
+          null;
+
+        graphVersionSelect.innerHTML = "";
+        state.graph.versions.forEach((version) => {
+          const option = document.createElement("option");
+          option.value = version.version_id;
+          option.textContent = `${version.name} [${version.status}]`;
+          graphVersionSelect.appendChild(option);
+        });
+        if (state.graph.versionId) {
+          graphVersionSelect.value = state.graph.versionId;
+        }
+
+        const graphEntry = (state.graph.allGraphs || []).find(
+          (entry) => entry.graph_id === graphId,
+        );
+        if (graphEntry) {
+          graphEntry.versions = state.graph.versions;
+        }
+        updateChatGraphSelect();
+      };
+
+      const loadGraphView = async () => {
+        if (!state.graph.graphId || !state.graph.versionId) return;
+        setStatus(graphStatus, "Loading graph view...", "neutral");
+        const response = await fetchApi(
+          `/graphs/${encodeURIComponent(state.graph.graphId)}/versions/${encodeURIComponent(state.graph.versionId)}/view`,
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Could not load graph view.",
+            "error",
+          );
+          return;
+        }
+        state.graph.view = payload;
+        renderGraph(payload);
+      };
+
+      const loadGraphs = async () => {
+        const response = await fetchApi("/graphs");
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Could not load graph list.",
+            "error",
+          );
+          return;
+        }
+
+        graphSelect.innerHTML = "";
+        const graphs = payload.graphs || [];
+        state.graph.allGraphs = [];
+
+        for (const graph of graphs) {
+          const option = document.createElement("option");
+          option.value = graph.graph_id;
+          option.textContent = graph.name;
+          graphSelect.appendChild(option);
+
+          const versionsResponse = await fetchApi(
+            `/graphs/${encodeURIComponent(graph.graph_id)}/versions`,
+          );
+          const versionsPayload = await versionsResponse.json();
+          state.graph.allGraphs.push({
+            graph_id: graph.graph_id,
+            name: graph.name,
+            versions: versionsPayload.versions || [],
+          });
+        }
+        updateChatGraphSelect();
+
+        state.graph.graphId =
+          payload.active_graph_id || payload.graphs?.[0]?.graph_id || null;
+        if (state.graph.graphId) {
+          graphSelect.value = state.graph.graphId;
+          await loadGraphVersions(state.graph.graphId);
+          await loadGraphView();
+        } else {
+          setStatus(graphStatus, "No graph available.", "warning");
+        }
+      };
+
+      uploadSubmit.addEventListener("click", async () => {
+        if (!state.uploadQueue.length)
+          return setStatus(
+            ingestStatus,
+            "Please select files first.",
+            "warning",
+          );
+
+        for (const file of state.uploadQueue) {
+          setStatus(ingestStatus, `Verarbeite ${file.name}...`, "neutral");
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append(
+            "chunk_size",
+            String(Number(chunkSize.value || 1000)),
+          );
+          formData.append("overlap", String(Number(chunkOverlap.value || 200)));
+          formData.append("provider", getSelectedProvider());
+          formData.append("api_key", apiKey.value.trim() || "");
+
+          try {
+            const response = await fetchApi("/ingest/upload-and-process", {
+              method: "POST",
+              body: formData,
+            });
+            const payload = await response.json();
+            if (response.ok || response.status === 202) {
+              setStatus(
+                ingestStatus,
+                payload.message || "File processed.",
+                response.ok ? "success" : "warning",
+              );
+              const storedFilename = payload?.metadata?.stored_filename;
+              if (storedFilename) {
+                state.lastClassification = await callClassification(
+                  `File ${file.name}`,
+                  storedFilename,
+                );
+              }
+            } else {
+              setStatus(
+                ingestStatus,
+                payload.message || "Upload failed.",
+                "error",
+              );
+            }
+          } catch {
+            setStatus(ingestStatus, "Backend unreachable.", "error");
+          }
+        }
+
+        state.uploadQueue = [];
+        renderFileList(state.uploadQueue, uploadFileList);
+        await refreshRagDbWhenVisible();
+      });
+
+      emailForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!emailBody.value.trim())
+          return setStatus(
+            emailStatus,
+            "Email body must not be empty.",
+            "warning",
+          );
+        setStatus(emailStatus, "Processing email...", "neutral");
+
+        try {
+          const response = await fetchApi("/ingest/email/compose", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipient: emailRecipient.value.trim(),
+              sender: emailSender.value.trim(),
+              subject: emailSubject.value.trim(),
+              body: emailBody.value,
+            }),
+          });
+          const payload = await response.json();
+          if (response.ok) {
+            let statusMessage = payload.message || "Email processed.";
+            let statusTone = "success";
+            const storedFilename = payload?.metadata?.stored_filename;
+            if (storedFilename) {
+              state.lastClassification = await callClassification(
+                emailBody.value,
+                storedFilename,
+              );
+            }
+
+            const failedAttachments = [];
+            let successfulAttachments = 0;
+            const attachmentWarnings = [];
+
+            for (const attachment of state.emailAttachments) {
+              const formData = new FormData();
+              formData.append("file", attachment);
+              formData.append("chunk_size", "1000");
+              formData.append("overlap", "200");
+              formData.append("provider", getSelectedProvider());
+              formData.append("api_key", apiKey.value.trim() || "");
+
+              const attachmentResponse = await fetchApi(
+                "/ingest/upload-and-process",
+                {
+                  method: "POST",
+                  body: formData,
+                },
+              );
+              const attachmentPayload = await attachmentResponse.json();
+
+              if (attachmentResponse.ok) {
+                successfulAttachments += 1;
+                continue;
+              }
+
+              if (attachmentResponse.status === 202) {
+                statusTone = "warning";
+                successfulAttachments += 1;
+                attachmentWarnings.push(
+                  `${attachment.name}: ${attachmentPayload.message || "processed with warning"}`,
+                );
+                continue;
+              }
+
+              failedAttachments.push(attachment);
+            }
+
+            if (successfulAttachments && !failedAttachments.length) {
+              statusMessage = `${statusMessage} Attachments processed: ${successfulAttachments}.`;
+            }
+
+            if (attachmentWarnings.length) {
+              statusMessage = `${statusMessage} Warnungen: ${attachmentWarnings.join(" | ")}`;
+            }
+
+            if (failedAttachments.length) {
+              statusTone = "warning";
+              const failedNames = failedAttachments
+                .map((file) => file.name)
+                .join(", ");
+              statusMessage = `${statusMessage} Failed attachments: ${failedNames}.`;
+            }
+
+            setStatus(emailStatus, statusMessage, statusTone);
+            state.emailAttachments = failedAttachments;
+            renderFileList(state.emailAttachments, emailAttachmentList);
+            await refreshRagDbWhenVisible();
+          } else {
+            setStatus(
+              emailStatus,
+              payload.message || "Email failed.",
+              "error",
+            );
+          }
+        } catch {
+          setStatus(emailStatus, "Backend unreachable.", "error");
+        }
+      });
+
+      checkConnection.addEventListener("click", async () => {
+        const provider = getSelectedProvider();
+        const key = apiKey.value.trim();
+        if (!provider || !key) {
+          setStatus(connectionStatus, "Enter model and API key.", "warning");
+          return;
+        }
+
+        checkConnection.disabled = true;
+        setStatus(connectionStatus, "Checking connection...", "neutral");
+
+        try {
+          const response = await fetchApi("/llm/check-connection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              provider,
+              api_key: key,
+            }),
+          });
+          const payload = await response.json();
+          if (response.ok && payload.connected) {
+            setStatus(
+              connectionStatus,
+              `Verbunden (${provider}): ${payload.response_preview || "OK"}`,
+              "success",
+            );
+          } else {
+            const warningText =
+              Array.isArray(payload.warnings) && payload.warnings.length
+                ? ` (${payload.warnings.join(" | ")})`
+                : "";
+            setStatus(
+              connectionStatus,
+              `Not connected: ${payload.message || "Connection test failed."}${warningText}`,
+              "error",
+            );
+          }
+        } catch {
+          setStatus(
+            connectionStatus,
+            "Not connected: Backend unreachable.",
+            "error",
+          );
+        } finally {
+          updateConnectionButtonState();
+        }
+      });
+
+      columnToggles.forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const key = toggle.dataset.column;
+          if (!key) return;
+          state.layout.collapsed[key] = !state.layout.collapsed[key];
+          applyColumnLayout();
+        });
+      });
+
+      attachResizer(resizerIntakeChat, "intake", "chat");
+      attachResizer(resizerChatEvidence, "chat", "evidence");
+      attachHorizontalResizer(
+        ragWorkspaceResizer,
+        ragWorkspace,
+        "data",
+        "graph",
+        state.ragWorkspace,
+        applyRagWorkspaceLayout,
+      );
+      window.addEventListener("resize", () => {
+        applyColumnLayout();
+        applyRagWorkspaceLayout();
+      });
+      applyColumnLayout();
+      applyRagWorkspaceLayout();
+      updateRagDbToggleButton();
+
+      chatGraphSelect.addEventListener("change", () => {
+        const value = chatGraphSelect.value || "";
+        if (!value) {
+          state.chatGraphSelection.graphId = null;
+          state.chatGraphSelection.versionId = null;
+          setStatus(
+            ragStatus,
+            "Chat filter: Default (all documents).",
+            "neutral",
+          );
+          return;
+        }
+        const [graphId, versionId] = value.split("::");
+        state.chatGraphSelection.graphId = graphId || null;
+        state.chatGraphSelection.versionId = versionId || null;
+        setStatus(ragStatus, "Chat filter: Relations Graph active.", "success");
+      });
+
+      ragForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const query = queryText.value.trim();
+        if (!query)
+          return setStatus(
+            ragStatus,
+            "Please enter a message.",
+            "warning",
+          );
+
+        addMessage(query, "user");
+        queryText.value = "";
+        setStatus(ragStatus, "Searching...", "neutral");
+
+        try {
+          const response = await fetchApi("/rag/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query_text: query,
+              top_k: Number(topK.value || 5),
+              api_key: apiKey.value.trim() || null,
+              provider: getSelectedProvider(),
+              graph_id: state.chatGraphSelection.graphId,
+              graph_version_id: state.chatGraphSelection.versionId,
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            const noEvidence =
+              response.status === 404 && payload.status === "warning";
+            const tone = noEvidence ? "warning" : "error";
+            const fallback = noEvidence
+              ? "No evidence found in the RAG index."
+              : "Query failed.";
+            setStatus(ragStatus, payload.message || fallback, tone);
+            const errorResults = payload.results || [];
+            const errorReferenceMap = new Map(
+              errorResults.map((_, idx) => [idx + 1, idx]),
+            );
+            addMessage(
+              payload.answer || payload.message || fallback,
+              "assistant",
+              {
+                referenceMap: errorReferenceMap,
+                toolPayload: payload.tool_payload,
+                toolName: payload.used_tool,
+              },
+            );
+            state.evidence = errorResults;
+            state.evidenceIndex = 0;
+            await renderEvidence();
+            return;
+          }
+
+          const results = payload.results || [];
+          state.evidence = results;
+          state.evidenceIndex = 0;
+
+          const summary =
+            payload.answer ||
+            (results.length
+              ? `Ich habe ${results.length} evidence passages found. Beste Stelle: "${results[0].text || "(no text)"}"`
+              : "No evidence found.");
+          const referenceMap = new Map(results.map((_, idx) => [idx + 1, idx]));
+          addMessage(summary, "assistant", {
+            referenceMap,
+            toolPayload: payload.tool_payload,
+            toolName: payload.used_tool,
+          });
+
+          setStatus(
+            ragStatus,
+            payload.message || "Query successful.",
+            "success",
+          );
+          await renderEvidence();
+        } catch {
+          setStatus(ragStatus, "Backend unreachable.", "error");
+          addMessage("Backend unreachable.", "assistant");
+        }
+      });
+
+      queryText.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" || event.shiftKey) return;
+        event.preventDefault();
+        ragForm.requestSubmit();
+      });
+
+      let recorderState = {
+        mediaRecorder: null,
+        audioChunks: [],
+        stream: null,
+        targetInput: null,
+        statusElement: null,
+        activeButton: null,
+      };
+
+      const stopVoiceRecording = () => {
+        if (!recorderState.mediaRecorder) return;
+        recorderState.mediaRecorder.stop();
+      };
+
+      const resetRecorderState = () => {
+        if (recorderState.stream) {
+          recorderState.stream.getTracks().forEach((track) => track.stop());
+        }
+        recorderState = {
+          mediaRecorder: null,
+          audioChunks: [],
+          stream: null,
+          targetInput: null,
+          statusElement: null,
+          activeButton: null,
+        };
+      };
+
+      const startVoiceInput = async (targetInput, statusElement, triggerButton) => {
+        if (recorderState.mediaRecorder?.state === "recording") {
+          stopVoiceRecording();
+          return;
+        }
+
+        const provider = getSelectedProvider();
+        const key = apiKey.value.trim();
+        if (provider !== "chatgpt") {
+          setStatus(
+            statusElement,
+            "Voice input is only available with ChatGPT/OpenAI.",
+            "warning",
+          );
+          return;
+        }
+        if (!key) {
+          setStatus(
+            statusElement,
+            "Please enter an OpenAI API key for voice input.",
+            "warning",
+          );
+          return;
+        }
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mediaRecorder = new MediaRecorder(stream);
+          recorderState = {
+            mediaRecorder,
+            audioChunks: [],
+            stream,
+            targetInput,
+            statusElement,
+            activeButton: triggerButton,
+          };
+
+          mediaRecorder.addEventListener("dataavailable", (event) => {
+            if (event.data?.size) recorderState.audioChunks.push(event.data);
+          });
+
+          mediaRecorder.addEventListener("stop", async () => {
+            try {
+              if (!recorderState.audioChunks.length) {
+                setStatus(statusElement, "No audio recording detected.", "warning");
+                return;
+              }
+              setStatus(statusElement, "Transcribing voice input with Whisper ...", "neutral");
+              const audioBlob = new Blob(recorderState.audioChunks, { type: "audio/webm" });
+              const formData = new FormData();
+              formData.append("file", audioBlob, "voice-input.webm");
+              formData.append("model", "whisper-1");
+              formData.append("language", "de");
+
+              const transcriptionResponse = await fetch(
+                "https://api.openai.com/v1/audio/transcriptions",
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${key}`,
+                  },
+                  body: formData,
+                },
+              );
+
+              const transcriptionPayload = await transcriptionResponse.json();
+              if (!transcriptionResponse.ok) {
+                setStatus(
+                  statusElement,
+                  transcriptionPayload.error?.message || "Whisper transcription failed.",
+                  "error",
+                );
+                return;
+              }
+
+              const transcript = String(transcriptionPayload.text || "").trim();
+              if (!transcript) {
+                setStatus(statusElement, "Whisper did not detect any text.", "warning");
+                return;
+              }
+              targetInput.value = targetInput.value
+                ? `${targetInput.value.trim()} ${transcript}`
+                : transcript;
+              setStatus(statusElement, "Voice input inserted.", "success");
+            } catch {
+              setStatus(statusElement, "Transcription failed.", "error");
+            } finally {
+              if (triggerButton) {
+                triggerButton.textContent = "🎙️";
+                triggerButton.dataset.recording = "false";
+              }
+              resetRecorderState();
+              targetInput.focus();
+            }
+          });
+
+          mediaRecorder.start();
+          triggerButton.textContent = "⏹";
+          triggerButton.dataset.recording = "true";
+          setStatus(statusElement, "Voice input in progress ... Click again to stop.", "neutral");
+        } catch {
+          setStatus(statusElement, "Microphone access not available.", "error");
+          triggerButton.textContent = "🎙️";
+          triggerButton.dataset.recording = "false";
+          resetRecorderState();
+        }
+      };
+
+      voiceInputBtn.addEventListener("click", async () => {
+        await startVoiceInput(queryText, ragStatus, voiceInputBtn);
+      });
+
+      ragDbVoiceInputBtn.addEventListener("click", async () => {
+        await startVoiceInput(ragDbNaturalFilter, ragDbFilterStatus, ragDbVoiceInputBtn);
+      });
+
+      prevEvidence.addEventListener("click", async () => {
+        if (state.evidenceIndex <= 0) return;
+        state.evidenceIndex -= 1;
+        await renderEvidence();
+      });
+
+      nextEvidence.addEventListener("click", async () => {
+        if (state.evidenceIndex >= state.evidence.length - 1) return;
+        state.evidenceIndex += 1;
+        await renderEvidence();
+      });
+
+      function updateRagDbToggleButton() {
+        openRagDb.textContent = state.ragDbVisible
+          ? "RAG Database ausblenden"
+          : "Open RAG database";
+      }
+
+      toggleRagDbData.addEventListener("click", () => {
+        state.ragWorkspace.collapsed.data = !state.ragWorkspace.collapsed.data;
+        applyRagWorkspaceLayout();
+      });
+
+      toggleGraphBuilder.addEventListener("click", () => {
+        state.ragWorkspace.collapsed.graph =
+          !state.ragWorkspace.collapsed.graph;
+        applyRagWorkspaceLayout();
+      });
+
+      openRagDb.addEventListener("click", async () => {
+        state.ragDbVisible = !state.ragDbVisible;
+        ragDbPanel.hidden = !state.ragDbVisible;
+        updateRagDbToggleButton();
+        applyRagWorkspaceLayout();
+        if (state.ragDbVisible) {
+          await loadRagDbOverview();
+          await loadGraphs();
+        }
+      });
+
+      closeRagDb.addEventListener("click", () => {
+        state.ragDbVisible = false;
+        ragDbPanel.hidden = true;
+        updateRagDbToggleButton();
+        applyRagWorkspaceLayout();
+      });
+
+      refreshRagDb.addEventListener("click", loadRagDbOverview);
+      applyRagDbFilters.addEventListener("click", applyRagDbFiltersRequest);
+      resetRagDbFilters.addEventListener("click", async () => {
+        ragDbNaturalFilter.value = "";
+        ragDbDateFrom.value = "";
+        ragDbDateTo.value = "";
+        ragDbClassFilter.value = "";
+        await loadRagDbOverview();
+      });
+
+      graphSelect.addEventListener("change", async () => {
+        state.graph.graphId = graphSelect.value || null;
+        await loadGraphVersions(state.graph.graphId);
+        await loadGraphView();
+      });
+
+      graphVersionSelect.addEventListener("change", async () => {
+        state.graph.versionId = graphVersionSelect.value || null;
+        await loadGraphView();
+      });
+
+      createGraphBtn.addEventListener("click", async () => {
+        const name = window.prompt("Name for new graph:", "New Graph");
+        const response = await fetchApi("/graphs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name || "New Graph" }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Could not create graph.",
+            "error",
+          );
+          return;
+        }
+        await loadGraphs();
+      });
+
+      createDraftBtn.addEventListener("click", async () => {
+        if (!state.graph.graphId) return;
+        const response = await fetchApi(
+          `/graphs/${encodeURIComponent(state.graph.graphId)}/versions/draft`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from_version_id: state.graph.versionId }),
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Could not create draft.",
+            "error",
+          );
+          return;
+        }
+        await loadGraphVersions(state.graph.graphId);
+        await loadGraphView();
+      });
+
+      commitVersionBtn.addEventListener("click", async () => {
+        if (!state.graph.graphId || !state.graph.versionId) return;
+        const response = await fetchApi(
+          `/graphs/${encodeURIComponent(state.graph.graphId)}/versions/${encodeURIComponent(state.graph.versionId)}/commit`,
+          {
+            method: "POST",
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Commit failed.",
+            "error",
+          );
+          return;
+        }
+        await loadGraphVersions(state.graph.graphId);
+        await loadGraphView();
+      });
+
+      rollbackVersionBtn.addEventListener("click", async () => {
+        if (!state.graph.graphId || !state.graph.versionId) return;
+        const response = await fetchApi(
+          `/graphs/${encodeURIComponent(state.graph.graphId)}/versions/${encodeURIComponent(state.graph.versionId)}/rollback`,
+          {
+            method: "POST",
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Rollback failed.",
+            "error",
+          );
+          return;
+        }
+        await loadGraphVersions(state.graph.graphId);
+        await loadGraphView();
+      });
+
+      addRelationBtn.addEventListener("click", async () => {
+        if (!state.graph.graphId || !state.graph.versionId) {
+          setStatus(
+            graphStatus,
+            "Please select graph and version.",
+            "warning",
+          );
+          return;
+        }
+        if (!docASelect.value || !docBSelect.value) {
+          setStatus(graphStatus, "Please select document A and B.", "warning");
+          return;
+        }
+
+        const response = await fetchApi(
+          `/graphs/${encodeURIComponent(state.graph.graphId)}/versions/${encodeURIComponent(state.graph.versionId)}/edges`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from_doc_id: docASelect.value,
+              to_doc_id: docBSelect.value,
+              type: relationType.value,
+              note: relationNote.value.trim() || null,
+            }),
+          },
+        );
+        const payload = await response.json();
+        if (!response.ok) {
+          setStatus(
+            graphStatus,
+            payload.message || "Could not save relation.",
+            "error",
+          );
+          return;
+        }
+        renderGraph(payload);
+      });
+
+      settingsToggle.addEventListener("click", () => {
+        settingsPanel.hidden = !settingsPanel.hidden;
+        settingsToggle.textContent = settingsPanel.hidden
+          ? "Settings"
+          : "Close settings";
+      });
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((entry) => entry.classList.remove("is-active"));
+          tab.classList.add("is-active");
+          document.getElementById("tab-email").hidden =
+            tab.dataset.tab !== "email";
+          document.getElementById("tab-files").hidden =
+            tab.dataset.tab !== "files";
+        });
+      });
+
+      ragDbNaturalFilter.addEventListener("keydown", async (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          await applyRagDbFiltersRequest();
+        }
+      });
+
+      attachDropHandlers(dropZone, fileInput, "uploadQueue", uploadFileList);
+      attachDropHandlers(
+        emailDropZone,
+        emailAttachments,
+        "emailAttachments",
+        emailAttachmentList,
+      );
+
+      settingsToggle.textContent = settingsPanel.hidden
+        ? "Settings"
+        : "Close settings";
+
+      const storedProvider = window.localStorage.getItem("rag_api_provider");
+      if (storedProvider) {
+        apiProvider.value = storedProvider;
+      }
+      apiProvider.addEventListener("change", () => {
+        window.localStorage.setItem("rag_api_provider", getSelectedProvider());
+        updateConnectionButtonState();
+      });
+      apiKey.addEventListener("input", updateConnectionButtonState);
+      selectAllLabels.addEventListener("click", selectAllClassificationLabels);
+      saveApiBase.addEventListener("click", () => {
+        const value = normalizeBase(apiBaseInput.value);
+        if (value) {
+          window.localStorage.setItem("rag_api_base", value);
+        } else {
+          window.localStorage.removeItem("rag_api_base");
+        }
+        refreshApiBaseCandidates();
+        updateApiBaseUi();
+      });
+
+      const applyTheme = (theme) => {
+        document.documentElement.dataset.theme = theme;
+        darkModeToggle.checked = theme === "dark";
+      };
+
+      const storedTheme = window.localStorage.getItem("rag_theme") || "light";
+      applyTheme(storedTheme);
+      darkModeToggle.addEventListener("change", () => {
+        const theme = darkModeToggle.checked ? "dark" : "light";
+        window.localStorage.setItem("rag_theme", theme);
+        applyTheme(theme);
+      });
+
+      updateApiBaseUi();
+      loadFrontendConfig();
+      loadClassificationLabels();
+      tokenLimit.value = tokenLimit.value || "2048";
+      updateConnectionButtonState();
+      loadGraphs();
+    </script>
+  </body>
+</html>
