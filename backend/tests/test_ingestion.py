@@ -2954,3 +2954,36 @@ class TestStructuredParsingFormats(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_convert_ifc_to_obj_reports_missing_converter(tmp_path):
+    source_path = tmp_path / "building.ifc"
+    source_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    with patch("backend.ingestion.shutil.which", return_value=None):
+        output_path, status, warnings = ingestion._convert_ifc_to_obj(source_path=source_path)
+
+    assert output_path is None
+    assert status == "converter_missing"
+    assert any("IFCConverter" in warning for warning in warnings)
+
+
+def test_convert_ifc_to_obj_uses_converter_binary(tmp_path):
+    source_path = tmp_path / "building.ifc"
+    source_path.write_text("ISO-10303-21;", encoding="utf-8")
+
+    def _fake_run(cmd, check, stdout, stderr, text):
+        assert cmd[0] == "IFCConverter"
+        Path(cmd[2]).write_text("o generated\nv 0 0 0\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    with patch("backend.ingestion.shutil.which", return_value="IFCConverter"), patch(
+        "backend.ingestion.subprocess.run", side_effect=_fake_run
+    ):
+        output_path, status, warnings = ingestion._convert_ifc_to_obj(source_path=source_path)
+
+    assert output_path is not None
+    assert output_path.exists()
+    assert output_path.suffix == ".obj"
+    assert status == "converted"
+    assert warnings == []
