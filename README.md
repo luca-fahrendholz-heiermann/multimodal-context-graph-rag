@@ -39,6 +39,8 @@ flowchart LR
 
 Detailliertes Diagramm: [`docs/architecture.md`](docs/architecture.md)
 
+Zusätzlich enthält die Architektur-Doku jetzt ein eigenes Mermaid-Diagramm für **projektbezogene Relationsgraphen** und **Scope Retrieval im Chat** (Graph-Auswahl → Dokument-Subset → semantische Suche mit besser erkennbaren Verknüpfungen).
+
 ## Projektstruktur
 
 - `frontend/` – statische Web-Oberfläche
@@ -115,6 +117,8 @@ Synthetische Beispieldokumente ohne PII liegen unter `data/sample_documents/`.
 ## Weitere Dokumentation
 
 - [`docs/architecture.md`](docs/architecture.md)
+- [`docs/guides/demo-mode.md`](docs/guides/demo-mode.md)
+- [`docs/guides/development.md`](docs/guides/development.md)
 - [`docs/adr/0001-demo-mode-and-provider-fallback.md`](docs/adr/0001-demo-mode-and-provider-fallback.md)
-- [`VECTOR_DB_DECISION.md`](VECTOR_DB_DECISION.md)
-- [`SPEC.md`](SPEC.md)
+- [`docs/decisions/vector-db-decision.md`](docs/decisions/vector-db-decision.md)
+- [`docs/specs/product-spec.md`](docs/specs/product-spec.md)

@@ -56,3 +56,57 @@ flowchart TD
   RAG --> RET
   RAG --> UI
 ```
+
+
+## Mermaid diagram: Project Relation Graph + Scoped Retrieval
+
+```mermaid
+flowchart TD
+  User[User im Chat]
+  UI[Frontend: Chat + Graph Builder]
+  API[Backend API]
+
+  subgraph Ingestion_Processing[Index-Aufbau]
+    ING[Ingestion: Upload / E-Mail]
+    CH[Chunking + Embeddings]
+  end
+
+  subgraph Stores[Persistenz]
+    VDB[(Vector Store)]
+    DOC[(Dokument-Metadaten)]
+    G[(Projekt-Relationsgraph
+Knoten=Dokumente
+Kanten=referenziert/ähnlich/gehört-zu)]
+  end
+
+  subgraph Retrieval[Scoped Retrieval]
+    SCOPE[Scope-Auswahl
+Projekt / Graph-Version / Dokumentmenge]
+    NEIGH[Graph Traversal
+(k-hop Nachbarschaft)]
+    FILTER[Dokumentfilter
+aus Graph-Scope]
+    SEM[Semantische Suche
+nur im Scope]
+    EVID[Evidence Ranking + Zitate]
+  end
+
+  subgraph Answer[Antworterzeugung]
+    RAG[RAG Orchestrator]
+    LLM[LLM Provider oder Local Fallback]
+  end
+
+  User --> UI --> API
+  API --> ING --> CH --> VDB
+  API --> ING --> DOC
+  API --> G
+
+  UI --> SCOPE --> API
+  API --> NEIGH --> G
+  NEIGH --> FILTER --> SEM
+  SEM --> VDB
+  SEM --> DOC
+  SEM --> EVID --> RAG --> LLM --> UI
+
+  G -. semantische/verknüpfte Dokumentpfade .-> NEIGH
+```
