@@ -320,6 +320,26 @@ def test_get_source_document_info_for_xlsx_builds_viewer_without_metadata_artifa
     assert "Sheet1" in rendered
 
 
+
+def test_get_source_document_info_for_sample_xlsx_renders_viewer_from_raw_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_integration, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "METADATA_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "VIEWER_ARTIFACTS_DIR", tmp_path / "viewer")
+
+    sample_path = Path(__file__).resolve().parents[2] / "data" / "sample_documents" / "commercial" / "02_kostenkalkulation.xlsx"
+    stored_filename = sample_path.name
+    (tmp_path / stored_filename).write_bytes(sample_path.read_bytes())
+
+    result = docling_integration.get_source_document_info(stored_filename)
+
+    assert result.status == "success"
+    assert result.source_kind == "table"
+    assert result.viewer_source_extension == ".html"
+    assert result.viewer_source_kind == "table"
+    assert result.viewer_source_path is not None
+    rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
+    assert "rag-db-table" in rendered
+
 def test_get_source_document_info_for_dxf_creates_html_viewer(tmp_path, monkeypatch):
     monkeypatch.setattr(docling_integration, "UPLOAD_DIR", tmp_path)
     monkeypatch.setattr(docling_integration, "VIEWER_ARTIFACTS_DIR", tmp_path / "viewer")
