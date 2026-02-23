@@ -318,3 +318,33 @@ def test_get_source_document_info_for_xlsx_builds_viewer_without_metadata_artifa
     rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
     assert "<table>" in rendered
     assert "Sheet1" in rendered
+
+
+def test_get_source_document_info_for_dxf_creates_html_viewer(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_integration, "UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(docling_integration, "VIEWER_ARTIFACTS_DIR", tmp_path / "viewer")
+
+    stored_filename = "plan.dxf"
+    (tmp_path / stored_filename).write_text(
+        "\n".join(
+            [
+                "0", "SECTION", "2", "ENTITIES",
+                "0", "LINE", "8", "WALL", "10", "0", "20", "0", "11", "100", "21", "0",
+                "0", "CIRCLE", "8", "WALL", "10", "50", "20", "50", "40", "10",
+                "0", "LWPOLYLINE", "8", "WALL", "70", "1", "10", "10", "20", "10", "10", "20", "20", "20",
+                "0", "ENDSEC", "0", "EOF",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = docling_integration.get_source_document_info(stored_filename)
+
+    assert result.status == "success"
+    assert result.source_kind == "dxf"
+    assert result.viewer_source_kind == "dxf"
+    assert result.viewer_source_extension == ".html"
+    assert result.viewer_source_path is not None
+    rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
+    assert "<svg" in rendered
+    assert "LINE 1" in rendered

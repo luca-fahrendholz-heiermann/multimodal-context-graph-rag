@@ -1728,7 +1728,7 @@
           return;
         }
 
-        const kind = sourceInfo.source_kind;
+        const kind = sourceInfo.viewer_source_kind || sourceInfo.source_kind;
         const encodedFilename = encodeURIComponent(storedFilename);
         const sourceUrl = apiPath(`/documents/source-file/${encodedFilename}`);
         const viewerSourceUrl = apiPath(`/documents/source-file/${encodedFilename}?viewer=1`);
@@ -1762,19 +1762,44 @@
           sourceViewer.appendChild(image);
           sourceViewer.hidden = false;
         } else if (kind === "table") {
-          const frame = document.createElement("iframe");
-          frame.className = "source-viewer-frame";
-          frame.src = viewerSourceUrl;
-          frame.title = `Table Viewer ${storedFilename}`;
-          sourceViewer.appendChild(frame);
-          sourceViewer.hidden = false;
+          if ((sourceInfo.viewer_source_extension || "").toLowerCase() !== ".html") {
+            sourceViewerStatus.hidden = false;
+            sourceViewerStatus.textContent =
+              "Table preview is not available for this document. Please use download.";
+          } else {
+            const frame = document.createElement("iframe");
+            frame.className = "source-viewer-frame";
+            frame.src = viewerSourceUrl;
+            frame.title = `Table Viewer ${storedFilename}`;
+            sourceViewer.appendChild(frame);
+            sourceViewer.hidden = false;
+          }
         } else if (kind === "xml") {
-          const frame = document.createElement("iframe");
-          frame.className = "source-viewer-frame";
-          frame.src = viewerSourceUrl;
-          frame.title = `XML Viewer ${storedFilename}`;
-          sourceViewer.appendChild(frame);
-          sourceViewer.hidden = false;
+          if ((sourceInfo.viewer_source_extension || "").toLowerCase() !== ".html") {
+            sourceViewerStatus.hidden = false;
+            sourceViewerStatus.textContent =
+              "XML preview is not available for this document. Please use download.";
+          } else {
+            const frame = document.createElement("iframe");
+            frame.className = "source-viewer-frame";
+            frame.src = viewerSourceUrl;
+            frame.title = `XML Viewer ${storedFilename}`;
+            sourceViewer.appendChild(frame);
+            sourceViewer.hidden = false;
+          }
+        } else if (kind === "dxf") {
+          if ((sourceInfo.viewer_source_extension || "").toLowerCase() !== ".html") {
+            sourceViewerStatus.hidden = false;
+            sourceViewerStatus.textContent =
+              "DXF preview is not available for this document. Please use download.";
+          } else {
+            const frame = document.createElement("iframe");
+            frame.className = "source-viewer-frame";
+            frame.src = viewerSourceUrl;
+            frame.title = `DXF Viewer ${storedFilename}`;
+            sourceViewer.appendChild(frame);
+            sourceViewer.hidden = false;
+          }
         } else if (kind === "text" || kind === "email") {
           const textBlock = document.createElement("pre");
           textBlock.className = "source-viewer-text";
