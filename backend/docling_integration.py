@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from email import policy
+from email.parser import BytesParser
+import html
 import importlib.metadata
 import importlib.util
 import mimetypes
@@ -264,9 +267,125 @@ def _source_kind_for_extension(extension: str) -> str:
         return "pptx"
     if extension == ".txt":
         return "text"
+    if extension in {".xlsx", ".csv", ".tsv"}:
+        return "table"
+    if extension in {".eml", ".msg"}:
+        return "email"
     if extension in {".obj", ".stl", ".ply", ".glb", ".gltf", ".off"}:
         return "3d"
     return "binary"
+
+
+def _load_metadata_payload(stored_filename: str) -> dict:
+    metadata_path = METADATA_DIR / f"{stored_filename}.json"
+    if not metadata_path.exists():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> Path | None:
+    tables = parsed_payload.get("tables") if isinstance(parsed_payload, dict) else None
+    if not isinstance(tables, list) or not tables:
+        return None
+
+    sections: list[str] = []
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        sheet_name = html.escape(str(table.get("sheet_name") or "Sheet"))
+        header = table.get("header") if isinstance(table.get("header"), list) else []
+        rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+        header_html = "".join(
+            f"<th>{html.escape(str(cell or ''))}</th>" for cell in header
+        )
+        body_rows = []
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            row_html = "".join(
+                f"<td>{html.escape(str(cell or ''))}</td>" for cell in row
+            )
+            body_rows.append(f"<tr>{row_html}</tr>")
+        table_html = (
+            "<section>"
+            f"<h3>{sheet_name}</h3>"
+            "<div class='table-wrap'><table>"
+            f"<thead><tr>{header_html}</tr></thead>"
+            f"<tbody>{''.join(body_rows)}</tbody>"
+            "</table></div>"
+            "</section>"
+        )
+        sections.append(table_html)
+
+    if not sections:
+        return None
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.table-viewer.html"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text(
+        (
+            "<!doctype html><html><head><meta charset='utf-8'><style>"
+            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;padding:12px;}"
+            "h3{margin:8px 0 6px;font-size:14px;color:#9dc1ff;}"
+            "section{margin-bottom:14px;border:1px solid #27406a;border-radius:8px;padding:8px;background:#0a1636;}"
+            ".table-wrap{overflow:auto;}"
+            "table{width:100%;border-collapse:collapse;font-size:12px;}"
+            "th,td{border:1px solid #2f4a79;padding:6px;text-align:left;vertical-align:top;}"
+            "th{background:#12224f;position:sticky;top:0;}"
+            "</style></head><body>"
+            f"{''.join(sections)}"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
+
+
+def _build_email_viewer_artifact(stored_filename: str, source_path: Path, parsed_payload: dict) -> Path | None:
+    object_structure = parsed_payload.get("object_structure") if isinstance(parsed_payload, dict) else {}
+    headers = object_structure.get("headers") if isinstance(object_structure, dict) else {}
+    body_text = parsed_payload.get("text") if isinstance(parsed_payload, dict) else ""
+
+    if not isinstance(headers, dict) or not (body_text or "").strip():
+        try:
+            message = BytesParser(policy=policy.default).parsebytes(source_path.read_bytes())
+        except OSError:
+            return None
+        headers = {
+            "from": message.get("From") or "",
+            "to": message.get("To") or "",
+            "cc": message.get("Cc") or "",
+            "subject": message.get("Subject") or "",
+            "date": message.get("Date") or "",
+        }
+        if message.is_multipart():
+            parts = [
+                str(part.get_content())
+                for part in message.walk()
+                if part.get_content_type().startswith("text/") and not part.get_filename()
+            ]
+            body_text = "\n".join(part for part in parts if part.strip())
+        else:
+            body_text = str(message.get_content())
+
+    lines = [
+        f"From: {headers.get('from') or ''}",
+        f"To: {headers.get('to') or ''}",
+        f"Cc: {headers.get('cc') or ''}",
+        f"Subject: {headers.get('subject') or ''}",
+        f"Date: {headers.get('date') or ''}",
+        "",
+        str(body_text or "").strip(),
+    ]
+
+    viewer_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.email-viewer.txt"
+    viewer_path.parent.mkdir(parents=True, exist_ok=True)
+    viewer_path.write_text("\n".join(lines), encoding="utf-8")
+    return viewer_path
 
 
 def _extract_image_text(file_path: Path) -> str | None:
@@ -599,6 +718,7 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
         resolved_mime = f"{resolved_mime}; charset=utf-8"
 
     source_kind = _source_kind_for_extension(extension)
+    metadata_payload = _load_metadata_payload(normalized)
     viewer_source_path = source_path
     viewer_source_extension = extension
     viewer_source_mime_type = resolved_mime
@@ -606,18 +726,15 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
 
     if source_kind == "3d":
         metadata_path = METADATA_DIR / f"{normalized}.json"
-        metadata_payload: dict = {}
-        if metadata_path.exists():
+        if metadata_payload:
             try:
-                metadata_payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                metadata_payload = {}
-
-            canonical_glb_raw = str((metadata_payload or {}).get("model_3d_canonical_glb_path") or "").strip()
+                canonical_glb_raw = str((metadata_payload or {}).get("model_3d_canonical_glb_path") or "").strip()
+            except Exception:
+                canonical_glb_raw = ""
             conversion_status = str((metadata_payload or {}).get("model_3d_conversion_status") or "")
             if canonical_glb_raw:
                 canonical_glb_path = Path(canonical_glb_raw)
-                if canonical_glb_path.exists() and conversion_status in {"converted_to_glb", "passthrough_glb"} and _is_valid_glb_file(canonical_glb_path):
+                if canonical_glb_path.exists() and (not conversion_status or conversion_status in {"converted_to_glb", "passthrough_glb"}) and _is_valid_glb_file(canonical_glb_path):
                     viewer_source_path = canonical_glb_path
                     viewer_source_extension = canonical_glb_path.suffix.lower() or ".glb"
                     viewer_source_mime_type = "model/gltf-binary"
@@ -654,6 +771,42 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
                 warnings.append(
                     "Generated canonical GLB was invalid; using original 3D source for viewer loading."
                 )
+
+    if source_kind == "table":
+        parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
+        if parsed_artifact_path_raw:
+            parsed_artifact_path = Path(parsed_artifact_path_raw)
+            if parsed_artifact_path.exists():
+                try:
+                    parsed_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
+                    table_viewer_path = _build_table_viewer_artifact(normalized, parsed_payload)
+                    if table_viewer_path is not None:
+                        viewer_source_path = table_viewer_path
+                        viewer_source_extension = ".html"
+                        viewer_source_mime_type = "text/html; charset=utf-8"
+                        viewer_source_kind = "table"
+                except (json.JSONDecodeError, OSError):
+                    warnings.append("Could not load parsed table artifact for viewer rendering.")
+
+    if source_kind == "email":
+        parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
+        parsed_payload: dict = {}
+        if parsed_artifact_path_raw:
+            parsed_artifact_path = Path(parsed_artifact_path_raw)
+            if parsed_artifact_path.exists():
+                try:
+                    candidate_payload = json.loads(parsed_artifact_path.read_text(encoding="utf-8"))
+                    if isinstance(candidate_payload, dict):
+                        parsed_payload = candidate_payload
+                except (json.JSONDecodeError, OSError):
+                    warnings.append("Could not load parsed email artifact for viewer rendering.")
+
+        email_viewer_path = _build_email_viewer_artifact(normalized, source_path, parsed_payload)
+        if email_viewer_path is not None:
+            viewer_source_path = email_viewer_path
+            viewer_source_extension = ".txt"
+            viewer_source_mime_type = "text/plain; charset=utf-8"
+            viewer_source_kind = "email"
 
     return SourceDocumentInfoResult(
         status="success",
