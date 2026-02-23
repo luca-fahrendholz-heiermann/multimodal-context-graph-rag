@@ -316,7 +316,7 @@ def test_get_source_document_info_for_xlsx_builds_viewer_without_metadata_artifa
     assert result.viewer_source_kind == "table"
     assert result.viewer_source_path is not None
     rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
-    assert "<table>" in rendered
+    assert "<table class='rag-db-table'>" in rendered
     assert "Sheet1" in rendered
 
 
@@ -373,5 +373,5 @@ def test_get_source_document_info_for_xlsx_falls_back_when_parsed_artifact_has_n
     assert result.viewer_source_kind == "table"
     assert result.viewer_source_path is not None
     rendered = Path(result.viewer_source_path).read_text(encoding="utf-8")
-    assert "<table>" in rendered
+    assert "<table class='rag-db-table'>" in rendered
     assert "Sheet1" in rendered

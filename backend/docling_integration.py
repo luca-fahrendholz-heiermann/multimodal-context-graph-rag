@@ -304,6 +304,8 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
         sheet_name = html.escape(str(table.get("sheet_name") or "Sheet"))
         header = table.get("header") if isinstance(table.get("header"), list) else []
         rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+        column_count = len(header)
+        row_count = len(rows)
         header_html = "".join(
             f"<th>{html.escape(str(cell or ''))}</th>" for cell in header
         )
@@ -316,9 +318,12 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
             )
             body_rows.append(f"<tr>{row_html}</tr>")
         table_html = (
-            "<section>"
+            "<section class='table-sheet'>"
+            "<header class='table-sheet-header'>"
             f"<h3>{sheet_name}</h3>"
-            "<div class='table-wrap'><table>"
+            f"<p>{row_count} rows · {column_count} columns</p>"
+            "</header>"
+            "<div class='rag-db-table-wrap'><table class='rag-db-table'>"
             f"<thead><tr>{header_html}</tr></thead>"
             f"<tbody>{''.join(body_rows)}</tbody>"
             "</table></div>"
@@ -334,13 +339,15 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
     viewer_path.write_text(
         (
             "<!doctype html><html><head><meta charset='utf-8'><style>"
-            "body{font-family:Inter,Arial,sans-serif;background:#06102d;color:#e7ecff;padding:12px;}"
-            "h3{margin:8px 0 6px;font-size:14px;color:#9dc1ff;}"
-            "section{margin-bottom:14px;border:1px solid #27406a;border-radius:8px;padding:8px;background:#0a1636;}"
-            ".table-wrap{overflow:auto;}"
-            "table{width:100%;border-collapse:collapse;font-size:12px;}"
-            "th,td{border:1px solid #2f4a79;padding:6px;text-align:left;vertical-align:top;}"
-            "th{background:#12224f;position:sticky;top:0;}"
+            "body{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a;padding:12px;margin:0;}"
+            ".table-sheet{margin-bottom:14px;border:1px solid #e2e8f0;border-radius:12px;padding:10px;background:#fff;}"
+            ".table-sheet-header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;}"
+            ".table-sheet-header h3{margin:0;font-size:14px;color:#0f172a;}"
+            ".table-sheet-header p{margin:0;font-size:12px;color:#475569;}"
+            ".rag-db-table-wrap{overflow:auto;border:1px solid #bfdbfe;border-radius:10px;background:#fff;}"
+            ".rag-db-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px;}"
+            ".rag-db-table th,.rag-db-table td{border-bottom:1px solid #e2e8f0;text-align:left;padding:8px 10px;vertical-align:top;}"
+            ".rag-db-table thead th{position:sticky;top:0;background:#eff6ff;z-index:1;}"
             "</style></head><body>"
             f"{''.join(sections)}"
             "</body></html>"
