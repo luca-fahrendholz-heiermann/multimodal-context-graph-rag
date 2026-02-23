@@ -119,11 +119,10 @@ Synthetische Beispieldokumente ohne PII liegen unter `data/sample_documents/`.
 
 ## Roadmap
 
-- [ ] <Roadmap Item Placeholder>
-- [ ] <Roadmap Item Placeholder>
-- [ ] <Roadmap Item Placeholder>
-- [ ] <Roadmap Item Placeholder>
-- [ ] <Roadmap Item Placeholder>
+- [ ] Optimizing OCR
+- [ ] Optimizing 3D Viewer
+- [ ] Optimizing dynamic Search Engine for tabular data
+
 
 ## Screenshots
 
