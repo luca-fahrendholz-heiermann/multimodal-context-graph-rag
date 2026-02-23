@@ -20,19 +20,34 @@ Ein portfolio-tauglicher Demo-Stack für **multimodale Ingestion**, **RAG-Suche*
 flowchart LR
   UI["Frontend UI<br/>(Intake/Chat/Evidence/Graph)"]
   API["FastAPI Backend"]
-  ING["Ingestion Layer<br/>(Upload/Email/Watch Folder)"]
+  ING["Ingestion"]
   PROC["Processing<br/>(Convert/Chunk/Embed/Classify)"]
-  VS[(Vector Store)]
-  GS[(Graph Layer)]
+
+  VDB[("Vector DB<br/>Embeddings + Chunks")]
+  DDB[("Document DB<br/>Metadata + Sources")]
+  GDB[("Graph DB<br/>Project Relation Graphs")]
+
+  BUILD["Graph Builder<br/>relations from selected docs"]
+  RET_ALL["Retrieval: all documents"]
+  RET_SCOPE["Retrieval: graph-scoped"]
+
   LLMR["LLM Provider<br/>(OpenAI/Gemini)"]
   LLMS["Stub/Local Fallback<br/>(Demo Mode)"]
 
-  UI --> API
-  API --> ING --> PROC
-  PROC --> VS
-  PROC --> GS
-  API --> VS
-  API --> GS
+  UI --> API --> ING --> PROC
+  PROC --> VDB
+  PROC --> DDB
+
+  API --> BUILD --> GDB
+  BUILD --> DDB
+
+  API --> RET_ALL --> VDB
+  API --> RET_ALL --> DDB
+
+  API --> RET_SCOPE --> GDB
+  RET_SCOPE --> VDB
+  RET_SCOPE --> DDB
+
   API --> LLMR
   API --> LLMS
 ```
@@ -40,6 +55,8 @@ flowchart LR
 Detailliertes Diagramm: [`docs/architecture.md`](docs/architecture.md)
 
 Zusätzlich enthält die Architektur-Doku jetzt ein eigenes Mermaid-Diagramm für **projektbezogene Relationsgraphen** und **Scope Retrieval im Chat** (Graph-Auswahl → Dokument-Subset → semantische Suche mit besser erkennbaren Verknüpfungen).
+
+Retrieval ist explizit in zwei Modi modelliert: **global über alle Dokumente** oder **optional graph-scoped über einen individuellen Relationsgraphen**.
 
 ## Projektstruktur
 
@@ -102,9 +119,11 @@ Synthetische Beispieldokumente ohne PII liegen unter `data/sample_documents/`.
 
 ## Roadmap
 
-- [ ] Optimize dynamic table search engine
-- [ ] Optimize OCR
-- [ ] Optimize Visualization of 3D documents
+- [ ] <Roadmap Item Placeholder>
+- [ ] <Roadmap Item Placeholder>
+- [ ] <Roadmap Item Placeholder>
+- [ ] <Roadmap Item Placeholder>
+- [ ] <Roadmap Item Placeholder>
 
 ## Screenshots
 

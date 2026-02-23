@@ -66,22 +66,20 @@ flowchart TD
   UI[Frontend: Chat + Graph Builder]
   API[Backend API]
 
-  subgraph Ingestion_Processing[Index-Aufbau]
+  subgraph Indexing[Indexing & Persistenz]
     ING[Ingestion: Upload / E-Mail]
     CH[Chunking + Embeddings]
+    VDB[(Vector DB: Embeddings + Chunks)]
+    DDB[(Document DB: Metadata + Sources)]
+    GDB[(Graph DB: Project Relation Graphs)]
+    GB[Graph Builder aus selektierten Dokumenten]
   end
 
-  subgraph Stores[Persistenz]
-    VDB[(Vector Store)]
-    DOC[(Dokument-Metadaten)]
-    G["Projekt-Relationsgraph<br/>Knoten=Dokumente<br/>Kanten=referenziert/ähnlich/gehört-zu"]
-  end
-
-  subgraph Retrieval[Scoped Retrieval]
-    SCOPE["Scope-Auswahl<br/>Projekt / Graph-Version / Dokumentmenge"]
-    NEIGH["Graph Traversal<br/>(k-hop Nachbarschaft)"]
-    FILTER["Dokumentfilter<br/>aus Graph-Scope"]
-    SEM["Semantische Suche<br/>nur im Scope"]
+  subgraph RetrievalModes[Retrieval Modi]
+    ALL[Global Retrieval über alle Dokumente]
+    SCOPE[Graph-Scoped Retrieval über ausgewählten Projektgraphen]
+    NEIGH[Graph Traversal / k-hop Nachbarschaft]
+    FILTER[Dokument-Filter aus Graph-Knotenmenge]
     EVID[Evidence Ranking + Zitate]
   end
 
@@ -91,16 +89,24 @@ flowchart TD
   end
 
   User --> UI --> API
-  API --> ING --> CH --> VDB
-  API --> ING --> DOC
-  API --> G
 
-  UI --> SCOPE --> API
-  API --> NEIGH --> G
-  NEIGH --> FILTER --> SEM
-  SEM --> VDB
-  SEM --> DOC
-  SEM --> EVID --> RAG --> LLM --> UI
+  API --> ING --> CH
+  CH --> VDB
+  CH --> DDB
 
-  G -. semantische/verknüpfte Dokumentpfade .-> NEIGH
+  API --> GB --> GDB
+  GB --> DDB
+
+  API --> ALL
+  ALL --> VDB
+  ALL --> DDB
+
+  API --> SCOPE --> GDB
+  SCOPE --> NEIGH --> FILTER
+  FILTER --> VDB
+  FILTER --> DDB
+
+  ALL --> EVID
+  FILTER --> EVID
+  EVID --> RAG --> LLM --> UI
 ```
