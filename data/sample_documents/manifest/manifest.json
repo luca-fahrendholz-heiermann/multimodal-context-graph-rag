@@ -1,0 +1,785 @@
+{
+  "version": "1.0.0",
+  "created_utc": "2026-02-23T09:58:01Z",
+  "datasets": [
+    {
+      "dataset_id": "insurance",
+      "title": "Versicherung",
+      "documents": [
+        {
+          "doc_id": "INS-EML-001",
+          "path": "insurance/01_anfrage_email.eml",
+          "modality": "email",
+          "description": "Schadensanfrage per E-Mail mit Referenz-IDs",
+          "entities": [
+            "CLM-2025-0007",
+            "PRJ-2025-042",
+            "CUST-ACME-0142",
+            "POL-7781",
+            "OFF-2025-0031",
+            "COMM-INV-2025-0015"
+          ],
+          "tags": [
+            "threading",
+            "headers"
+          ]
+        },
+        {
+          "doc_id": "INS-PDF-002",
+          "path": "insurance/02_schadensmeldung.pdf",
+          "modality": "pdf",
+          "description": "PDF Formular mit Tabelle (Claim Items)",
+          "entities": [
+            "CLM-2025-0007",
+            "PRJ-2025-042",
+            "CUST-ACME-0142"
+          ],
+          "tags": [
+            "layout",
+            "table"
+          ]
+        },
+        {
+          "doc_id": "INS-PDF-003",
+          "path": "insurance/03_policenvertrag.pdf",
+          "modality": "pdf",
+          "description": "Police-Vertrag mit Klausel-Text und Referenz auf Claim",
+          "entities": [
+            "CUST-ACME-0142",
+            "POL-7781",
+            "CLM-2025-0007"
+          ],
+          "tags": [
+            "sections",
+            "clauses"
+          ]
+        },
+        {
+          "doc_id": "INS-XLSX-004",
+          "path": "insurance/04_kostenvoranschlag.xlsx",
+          "modality": "table",
+          "description": "Kostenvoranschlag mit Formeln und ClaimId-Spalte",
+          "entities": [
+            "CLM-2025-0007"
+          ],
+          "tags": [
+            "formulas",
+            "row-as-doc"
+          ]
+        },
+        {
+          "doc_id": "INS-XML-005",
+          "path": "insurance/05_versicherungsschein.xml",
+          "modality": "xml",
+          "description": "Maschinenlesbarer Versicherungsschein",
+          "entities": [
+            "CUST-ACME-0142",
+            "POL-7781",
+            "CLM-2025-0007",
+            "COMM-INV-2025-0015"
+          ],
+          "tags": [
+            "schema",
+            "references"
+          ]
+        },
+        {
+          "doc_id": "INS-IMG-006",
+          "path": "insurance/artifacts/claim_photo_1.jpg",
+          "modality": "image",
+          "description": "Synthetisches Schadensfoto mit Textoverlay",
+          "entities": [
+            "CLM-2025-0007",
+            "PRJ-2025-042"
+          ],
+          "tags": [
+            "ocr",
+            "overlay-candidate"
+          ]
+        }
+      ]
+    },
+    {
+      "dataset_id": "contracts",
+      "title": "Verträge",
+      "documents": [
+        {
+          "doc_id": "CTR-DOCX-001",
+          "path": "contracts/01_vertragsentwurf.docx",
+          "modality": "docx",
+          "description": "Vertragsentwurf mit Tabelle und Referenzen",
+          "entities": [
+            "PRJ-2025-042",
+            "CTR-2025-011",
+            "CUST-ACME-0142",
+            "OFF-2025-0031",
+            "P-AXLE-017"
+          ],
+          "tags": [
+            "headings",
+            "tables"
+          ]
+        },
+        {
+          "doc_id": "CTR-PDF-002",
+          "path": "contracts/02_unterschriebener_vertrag.pdf",
+          "modality": "pdf",
+          "description": "PDF Version des Vertrags mit Signaturhinweis",
+          "entities": [
+            "CTR-2025-011",
+            "PRJ-2025-042",
+            "CUST-ACME-0142"
+          ],
+          "tags": [
+            "signature",
+            "provenance"
+          ]
+        },
+        {
+          "doc_id": "CTR-EML-003",
+          "path": "contracts/03_change_request.eml",
+          "modality": "email",
+          "description": "Change Request E-Mail mit Quoted-Block Kandidaten",
+          "entities": [
+            "CTR-2025-011",
+            "PRJ-2025-042",
+            "OFF-2025-0031",
+            "COMM-INV-2025-0015",
+            "CR-2025-02"
+          ],
+          "tags": [
+            "threading"
+          ]
+        },
+        {
+          "doc_id": "CTR-XLSX-004",
+          "path": "contracts/04_risk_register.xlsx",
+          "modality": "table",
+          "description": "Risiko-Register mit ContractId als Join-Key",
+          "entities": [
+            "CTR-2025-011"
+          ],
+          "tags": [
+            "row-as-doc"
+          ]
+        }
+      ]
+    },
+    {
+      "dataset_id": "commercial",
+      "title": "Kaufmännisch",
+      "documents": [
+        {
+          "doc_id": "COM-PDF-001",
+          "path": "commercial/01_anfrage_formular.pdf",
+          "modality": "pdf",
+          "description": "Anfrageformular als PDF",
+          "entities": [
+            "OFF-2025-0031",
+            "CUST-ACME-0142",
+            "PRJ-2025-042",
+            "P-AXLE-017"
+          ],
+          "tags": [
+            "form"
+          ]
+        },
+        {
+          "doc_id": "COM-XLSX-002",
+          "path": "commercial/02_kostenkalkulation.xlsx",
+          "modality": "table",
+          "description": "Kalkulation mit OfferId als Key und Summenformel",
+          "entities": [
+            "OFF-2025-0031"
+          ],
+          "tags": [
+            "formulas",
+            "column-block"
+          ]
+        },
+        {
+          "doc_id": "COM-DOCX-003",
+          "path": "commercial/03_angebot.docx",
+          "modality": "docx",
+          "description": "Angebot mit Positionsliste und Querverweis",
+          "entities": [
+            "OFF-2025-0031",
+            "PRJ-2025-042",
+            "CUST-ACME-0142",
+            "P-AXLE-017"
+          ],
+          "tags": [
+            "tables",
+            "offer"
+          ]
+        },
+        {
+          "doc_id": "COM-PDF-004",
+          "path": "commercial/04_rechnung.pdf",
+          "modality": "pdf",
+          "description": "Rechnung mit OfferId Join und Tabelle",
+          "entities": [
+            "COMM-INV-2025-0015",
+            "OFF-2025-0031",
+            "CUST-ACME-0142",
+            "P-AXLE-017"
+          ],
+          "tags": [
+            "invoice",
+            "table"
+          ]
+        },
+        {
+          "doc_id": "COM-IMG-005",
+          "path": "commercial/artifacts/product_photo.webp",
+          "modality": "image",
+          "description": "Synthetisches Produktbild, geeignet für OCR/CLIP",
+          "entities": [
+            "P-AXLE-017",
+            "OFF-2025-0031",
+            "COMM-INV-2025-0015"
+          ],
+          "tags": [
+            "image"
+          ]
+        }
+      ]
+    },
+    {
+      "dataset_id": "manufacturing",
+      "title": "Fertigung",
+      "documents": [
+        {
+          "doc_id": "MFG-STEP-001",
+          "path": "manufacturing/01_konstruktionszeichnung.step",
+          "modality": "3d",
+          "description": "STEP Platzhalter mit Product-ID",
+          "entities": [
+            "P-AXLE-017",
+            "DRW-AXLE-017-A"
+          ],
+          "tags": [
+            "cad",
+            "step"
+          ]
+        },
+        {
+          "doc_id": "MFG-STL-002",
+          "path": "manufacturing/02_cad_model.stl",
+          "modality": "3d",
+          "description": "ASCII STL für Tessellation Tests",
+          "entities": [
+            "P-AXLE-017"
+          ],
+          "tags": [
+            "mesh",
+            "stl"
+          ]
+        },
+        {
+          "doc_id": "MFG-NC-003",
+          "path": "manufacturing/03_gcode.nc",
+          "modality": "code",
+          "description": "G-Code mit Werkzeugwechsel und Feeds",
+          "entities": [
+            "P-AXLE-017",
+            "T1",
+            "S12000"
+          ],
+          "tags": [
+            "gcode",
+            "lexer"
+          ]
+        },
+        {
+          "doc_id": "MFG-XLSX-004",
+          "path": "manufacturing/04_produktionsauftrag.xlsx",
+          "modality": "table",
+          "description": "Produktionsauftrag mit Worksteps und Maschinen",
+          "entities": [
+            "PRJ-2025-042",
+            "P-AXLE-017",
+            "PO-2025-0091"
+          ],
+          "tags": [
+            "bom",
+            "routing"
+          ]
+        },
+        {
+          "doc_id": "MFG-IMG-005",
+          "path": "manufacturing/artifacts/assembly_photo.jpg",
+          "modality": "image",
+          "description": "Montagefoto für OCR/CLIP Tests",
+          "entities": [
+            "P-AXLE-017",
+            "DRW-AXLE-017-A",
+            "PO-2025-0091"
+          ],
+          "tags": [
+            "image",
+            "assembly"
+          ]
+        },
+        {
+          "doc_id": "MFG-PLY-006",
+          "path": "manufacturing/05_pointcloud.ply",
+          "modality": "3d",
+          "description": "Kleine Punktwolke als PLY",
+          "entities": [
+            "P-AXLE-017"
+          ],
+          "tags": [
+            "pointcloud",
+            "ply"
+          ]
+        }
+      ]
+    },
+    {
+      "dataset_id": "construction",
+      "title": "Bauwesen",
+      "documents": [
+        {
+          "doc_id": "CNS-EML-001",
+          "path": "construction/01_bauanfrage.eml",
+          "modality": "email",
+          "description": "Bauanfrage E-Mail mit Referenzen",
+          "entities": [
+            "PRJ-2025-042",
+            "SITE-LEIPZIG-07",
+            "VEND-BRICK-009",
+            "CTR-2025-011"
+          ],
+          "tags": [
+            "email"
+          ]
+        },
+        {
+          "doc_id": "CNS-DXF-002",
+          "path": "construction/02_plan_grundriss.dxf",
+          "modality": "cad",
+          "description": "DXF Grundriss als textbasiertes CAD Ersatzformat",
+          "entities": [
+            "SITE-LEIPZIG-07"
+          ],
+          "tags": [
+            "dxf",
+            "layers"
+          ]
+        },
+        {
+          "doc_id": "CNS-PDF-003",
+          "path": "construction/03_bausubmission.pdf",
+          "modality": "pdf",
+          "description": "Submission PDF mit LV Tabelle",
+          "entities": [
+            "PRJ-2025-042",
+            "SITE-LEIPZIG-07",
+            "VEND-BRICK-009"
+          ],
+          "tags": [
+            "table",
+            "lv"
+          ]
+        },
+        {
+          "doc_id": "CNS-XLSX-004",
+          "path": "construction/04_kostenschaetzung.xlsx",
+          "modality": "table",
+          "description": "Kostenschätzung mit LV Positionen und Summenformel",
+          "entities": [
+            "PRJ-2025-042",
+            "VEND-BRICK-009"
+          ],
+          "tags": [
+            "formulas"
+          ]
+        },
+        {
+          "doc_id": "CNS-TIF-005",
+          "path": "construction/artifacts/site_drone_orthophoto.tif",
+          "modality": "image",
+          "description": "TIFF Orthophoto Platzhalter",
+          "entities": [
+            "SITE-LEIPZIG-07",
+            "PRJ-2025-042"
+          ],
+          "tags": [
+            "tiff",
+            "raster"
+          ]
+        }
+      ]
+    },
+    {
+      "dataset_id": "common",
+      "title": "Cross-Modal",
+      "documents": [
+        {
+          "doc_id": "CMN-WAV-001",
+          "path": "common/meeting_audio.wav",
+          "modality": "audio",
+          "description": "Synthetische Audioaufnahme für ASR Pipeline",
+          "entities": [
+            "PRJ-2025-042"
+          ],
+          "tags": [
+            "asr"
+          ]
+        },
+        {
+          "doc_id": "CMN-VTT-002",
+          "path": "common/meeting_transcript.vtt",
+          "modality": "text",
+          "description": "VTT Transkript mit Referenzen auf IDs",
+          "entities": [
+            "PRJ-2025-042",
+            "OFF-2025-0031",
+            "CLM-2025-0007"
+          ],
+          "tags": [
+            "timeline",
+            "alignment"
+          ]
+        },
+        {
+          "doc_id": "CMN-MD-003",
+          "path": "common/notes.md",
+          "modality": "text",
+          "description": "Markdown Notes als Textquelle",
+          "entities": [
+            "PRJ-2025-042",
+            "CLM-2025-0007",
+            "OFF-2025-0031",
+            "COMM-INV-2025-0015"
+          ],
+          "tags": [
+            "markdown"
+          ]
+        },
+        {
+          "doc_id": "CMN-JSON-004",
+          "path": "common/context_graph_seed.json",
+          "modality": "json",
+          "description": "Seed Graph als JSON für strukturierte Parser",
+          "entities": [
+            "PRJ-2025-042",
+            "CUST-ACME-0142",
+            "OFF-2025-0031",
+            "COMM-INV-2025-0015",
+            "CLM-2025-0007",
+            "CTR-2025-011",
+            "P-AXLE-017",
+            "SITE-LEIPZIG-07"
+          ],
+          "tags": [
+            "graph",
+            "seed"
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "src": "INS-EML-001",
+      "dst": "INS-PDF-002",
+      "type": "references",
+      "evidence": "Body nennt CLM-2025-0007"
+    },
+    {
+      "src": "INS-PDF-002",
+      "dst": "INS-XLSX-004",
+      "type": "references",
+      "evidence": "PDF erwähnt Kostenvoranschlag"
+    },
+    {
+      "src": "INS-PDF-003",
+      "dst": "INS-XML-005",
+      "type": "same_as",
+      "evidence": "POL-7781 in beiden"
+    },
+    {
+      "src": "INS-PDF-002",
+      "dst": "INS-IMG-006",
+      "type": "contains",
+      "evidence": "Foto referenziert Claim"
+    },
+    {
+      "src": "CTR-DOCX-001",
+      "dst": "CTR-PDF-002",
+      "type": "derived_from",
+      "evidence": "Finalisierung des Entwurfs"
+    },
+    {
+      "src": "CTR-EML-003",
+      "dst": "CTR-DOCX-001",
+      "type": "references",
+      "evidence": "E-Mail bezieht sich auf Vertrag"
+    },
+    {
+      "src": "CTR-XLSX-004",
+      "dst": "CTR-DOCX-001",
+      "type": "part_of",
+      "evidence": "Risiken gehören zum Vertrag"
+    },
+    {
+      "src": "COM-PDF-001",
+      "dst": "COM-DOCX-003",
+      "type": "references",
+      "evidence": "Anfrage führt zu Angebot"
+    },
+    {
+      "src": "COM-XLSX-002",
+      "dst": "COM-DOCX-003",
+      "type": "same_as",
+      "evidence": "OfferId verbindet"
+    },
+    {
+      "src": "COM-DOCX-003",
+      "dst": "COM-PDF-004",
+      "type": "references",
+      "evidence": "Angebot zu Rechnung"
+    },
+    {
+      "src": "COM-PDF-004",
+      "dst": "INS-XML-005",
+      "type": "references",
+      "evidence": "Invoice ID in XML Referenzen"
+    },
+    {
+      "src": "MFG-STEP-001",
+      "dst": "MFG-STL-002",
+      "type": "derived_from",
+      "evidence": "STL ist Tessellation von STEP"
+    },
+    {
+      "src": "MFG-XLSX-004",
+      "dst": "MFG-NC-003",
+      "type": "derived_from",
+      "evidence": "Arbeitsfolge führt zu CNC Programm"
+    },
+    {
+      "src": "MFG-IMG-005",
+      "dst": "MFG-STEP-001",
+      "type": "same_as",
+      "evidence": "Foto referenziert DrawingId"
+    },
+    {
+      "src": "MFG-PLY-006",
+      "dst": "MFG-IMG-005",
+      "type": "references",
+      "evidence": "Pointcloud und Foto gehören zur gleichen Szene"
+    },
+    {
+      "src": "CNS-EML-001",
+      "dst": "CNS-PDF-003",
+      "type": "contains",
+      "evidence": "E-Mail verweist auf Submission"
+    },
+    {
+      "src": "CNS-PDF-003",
+      "dst": "CNS-XLSX-004",
+      "type": "references",
+      "evidence": "LV Positionen matchen"
+    },
+    {
+      "src": "CNS-DXF-002",
+      "dst": "CNS-TIF-005",
+      "type": "references",
+      "evidence": "Plan und Orthophoto gleicher Standort"
+    },
+    {
+      "src": "CNS-EML-001",
+      "dst": "CTR-PDF-002",
+      "type": "references",
+      "evidence": "Bauanfrage erwähnt ContractId"
+    },
+    {
+      "src": "CMN-WAV-001",
+      "dst": "CMN-VTT-002",
+      "type": "derived_from",
+      "evidence": "ASR erzeugt Transkript"
+    },
+    {
+      "src": "CMN-VTT-002",
+      "dst": "CMN-MD-003",
+      "type": "same_as",
+      "evidence": "Gleiche Inhalte in VTT und Notes"
+    },
+    {
+      "src": "CMN-JSON-004",
+      "dst": "COM-PDF-004",
+      "type": "references",
+      "evidence": "Invoice Node referenziert Dokument"
+    },
+    {
+      "src": "CMN-JSON-004",
+      "dst": "INS-PDF-002",
+      "type": "references",
+      "evidence": "Claim Node referenziert Dokument"
+    }
+  ],
+  "notes": [
+    "Alle Namen und Firmen sind fiktiv.",
+    "IDs sind stabil und wiederholen sich zwischen Dokumenten, um Entity- und Relation-Extraction zu testen."
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 342,
+      "sha256": "508007242712d17898eb0294d751fbb437ef40dd69e6ffcb9f7d632401226bb0"
+    },
+    {
+      "path": "commercial/01_anfrage_formular.pdf",
+      "bytes": 1825,
+      "sha256": "d9a2b36fb7f03ea6a632070b9fd1f628f7465aac266d6206a9a9b18a56292ae7"
+    },
+    {
+      "path": "commercial/02_kostenkalkulation.xlsx",
+      "bytes": 5083,
+      "sha256": "1b735fa3ed186abc7432b1b9a4629a0773129081c1481e5680896c2018bdcaae"
+    },
+    {
+      "path": "commercial/03_angebot.docx",
+      "bytes": 36994,
+      "sha256": "a20dc34f4b55c0bbc3c0cd21cf7058c8cdd82485edcb96667870b40a62beeadf"
+    },
+    {
+      "path": "commercial/04_rechnung.pdf",
+      "bytes": 2028,
+      "sha256": "09bce680b5daef7cff65e628b3c21b2329a6c2d9418b8b2dc24f87330a36cb78"
+    },
+    {
+      "path": "commercial/artifacts/product_photo.webp",
+      "bytes": 11420,
+      "sha256": "4a9a1ea50a77b2490d1e62c9ad0c06cd560585fefe77b6acd8830226b39bce92"
+    },
+    {
+      "path": "common/context_graph_seed.json",
+      "bytes": 1277,
+      "sha256": "62e5443784644d86ccdc1aff1aac5cbd9a625e54cc9038a6ddcab319e16d4681"
+    },
+    {
+      "path": "common/meeting_audio.wav",
+      "bytes": 128044,
+      "sha256": "c876ebfefcc54928471007046a0684c1396225ee8f17b4798bea0d651beef054"
+    },
+    {
+      "path": "common/meeting_transcript.vtt",
+      "bytes": 251,
+      "sha256": "3392b19c80f3f503184e5c74e118c7f45059c480538c436cf809861e664a6163"
+    },
+    {
+      "path": "common/notes.md",
+      "bytes": 363,
+      "sha256": "da558b70d062f65db36ae6cebc5a87c5511bc6c7872196e5177ecf9499a5c0c6"
+    },
+    {
+      "path": "construction/01_bauanfrage.eml",
+      "bytes": 460,
+      "sha256": "8512b2197f97a25e737e78af247f858e7f3a050ba11212748bfef00b0443df53"
+    },
+    {
+      "path": "construction/02_plan_grundriss.dxf",
+      "bytes": 182,
+      "sha256": "afde98c31347e52de911ca702aa207d1799ab237e2421eeb52518ad711bdda1d"
+    },
+    {
+      "path": "construction/03_bausubmission.pdf",
+      "bytes": 2098,
+      "sha256": "d569af36d319bb0c86f7f622371b3301cf66307b00299ce7fdc6d70f3bcdd89c"
+    },
+    {
+      "path": "construction/04_kostenschaetzung.xlsx",
+      "bytes": 5052,
+      "sha256": "ca4a653b73f986d80a123229c1425f4ba1bed81abc2c62ba369c11300d6e8b8e"
+    },
+    {
+      "path": "construction/artifacts/site_drone_orthophoto.tif",
+      "bytes": 2880140,
+      "sha256": "1486cb463a564349d2319b0dd0659663700e7cbcda475550bb10b37759c09536"
+    },
+    {
+      "path": "contracts/01_vertragsentwurf.docx",
+      "bytes": 37032,
+      "sha256": "1c8f9acc7e185058809b7a59250610ef49e6e575dfa07123b55aa41a71218ded"
+    },
+    {
+      "path": "contracts/02_unterschriebener_vertrag.pdf",
+      "bytes": 1828,
+      "sha256": "0818d7b9270f5e571e8983a5500d46f473fc9911b87be49b8b4eb4acb7ed9ace"
+    },
+    {
+      "path": "contracts/03_change_request.eml",
+      "bytes": 459,
+      "sha256": "0f84643f3f053b73ca4143e2edc810dc6ca33c0dd6d4c834a18cacad6d664dbc"
+    },
+    {
+      "path": "contracts/04_risk_register.xlsx",
+      "bytes": 5113,
+      "sha256": "120b1977d8d6dedfd411dcc8875648ebd79d2291aa1a0ee82886a8273f5ce394"
+    },
+    {
+      "path": "insurance/01_anfrage_email.eml",
+      "bytes": 484,
+      "sha256": "6676ad9add53ff451e4063a6be2d33f6f2079000e32352246864003d40434f1e"
+    },
+    {
+      "path": "insurance/02_schadensmeldung.pdf",
+      "bytes": 2169,
+      "sha256": "78788edd04006abf69a743fd07a630ca2a82d49342644f7ff71f9bd35b4478fe"
+    },
+    {
+      "path": "insurance/03_policenvertrag.pdf",
+      "bytes": 1940,
+      "sha256": "7c17854dfa6de9b06043371f8ebaf383a53f31cf1bfcd7ad0082a44b672b9f3e"
+    },
+    {
+      "path": "insurance/04_kostenvoranschlag.xlsx",
+      "bytes": 5174,
+      "sha256": "e2aee68c7e9c96e50fe90649e66c7d8df7bd6278d95f643a8594027557678b30"
+    },
+    {
+      "path": "insurance/05_versicherungsschein.xml",
+      "bytes": 496,
+      "sha256": "32892e830bd03912daa935827305e3d3e2f4b58354c30819e94e0accc6e2b608"
+    },
+    {
+      "path": "insurance/artifacts/claim_photo_1.jpg",
+      "bytes": 41371,
+      "sha256": "af2535cfba61442a0d3d2d5faf1ec2402fc03c6d83ebec5de99cdb12f773a3ff"
+    },
+    {
+      "path": "manufacturing/01_konstruktionszeichnung.step",
+      "bytes": 284,
+      "sha256": "4b0198336d0b648e648e8f92238c6785eeca7da877629bcc94bbf54ff178c9a8"
+    },
+    {
+      "path": "manufacturing/02_cad_model.stl",
+      "bytes": 275,
+      "sha256": "84e43c6ae1975e9562d06ee579884977e7fe9f6a0a91612ab2aeabd4c3507463"
+    },
+    {
+      "path": "manufacturing/03_gcode.nc",
+      "bytes": 167,
+      "sha256": "53bec95a183e25bc9f7d99d511235868c2b9121dad4d72467b5704ed652eb70a"
+    },
+    {
+      "path": "manufacturing/04_produktionsauftrag.xlsx",
+      "bytes": 5149,
+      "sha256": "889a6aa4fb04b2aeeb368a38a3f90848bc931692f90c9adb9fb68be945000dc2"
+    },
+    {
+      "path": "manufacturing/05_pointcloud.ply",
+      "bytes": 130,
+      "sha256": "c7aeb2376b9753f22975a3b31b895d71f86a981459b854f6e8460bb356630926"
+    },
+    {
+      "path": "manufacturing/artifacts/assembly_photo.jpg",
+      "bytes": 40307,
+      "sha256": "c92f441f19e5fbc439605317553179a5ba0e9357eea070d95523b56e835fde18"
+    }
+  ]
+}
