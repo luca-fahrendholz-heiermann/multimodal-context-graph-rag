@@ -1941,11 +1941,23 @@ class TestStructuredParsingFormats(unittest.TestCase):
         )
 
         self.assertEqual(parsed.parser, "xlsx_table_parser")
-        self.assertTrue(parsed.tables)
+        self.assertFalse(parsed.parser.startswith("automation_"))
         table = parsed.tables[0]
         self.assertEqual(table["sheet_name"], "Sheet1")
         self.assertEqual(table["header"], ["id", "name"])
         self.assertEqual(table["rows"], [["1", "Alice"], ["2", "Bob"]])
+
+    def test_parse_xlsx_sample_document_is_not_misclassified_as_automation(self):
+        sample_path = Path(__file__).resolve().parents[2] / "data" / "sample_documents" / "commercial" / "02_kostenkalkulation.xlsx"
+        parsed = ingestion.parse_structured_document(
+            filename=sample_path.name,
+            content_bytes=sample_path.read_bytes(),
+            detected_mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            magic_bytes_type="application/zip",
+        )
+
+        self.assertEqual(parsed.parser, "xlsx_table_parser")
+        self.assertFalse(parsed.parser.startswith("automation_"))
 
     def test_store_upload_csv_persists_schema_structure(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -4,7 +4,9 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
+import csv
 import html
+import io
 import importlib.metadata
 import importlib.util
 import mimetypes
@@ -357,6 +359,117 @@ def _build_table_viewer_artifact(stored_filename: str, parsed_payload: dict) -> 
     return viewer_path
 
 
+def _extract_fallback_tables_from_source(source_path: Path) -> list[dict]:
+    extension = source_path.suffix.lower()
+
+    if extension in {".csv", ".tsv"}:
+        try:
+            raw_text = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+
+        delimiter = "	" if extension == ".tsv" else ","
+        rows = [row for row in csv.reader(io.StringIO(raw_text), delimiter=delimiter)]
+        if not rows:
+            return []
+
+        if len(rows) == 1:
+            header = [f"column_{index + 1}" for index in range(len(rows[0]))]
+            body_rows = rows
+        else:
+            header = [str(cell or "").strip() or f"column_{index + 1}" for index, cell in enumerate(rows[0])]
+            body_rows = rows[1:]
+
+        return [
+            {
+                "sheet_name": "Sheet1",
+                "header": header,
+                "rows": [[str(cell or "") for cell in row] for row in body_rows],
+            }
+        ]
+
+    if extension != ".xlsx":
+        return []
+
+    try:
+        workbook = zipfile.ZipFile(source_path)
+    except (OSError, zipfile.BadZipFile):
+        return []
+
+    tables: list[dict] = []
+    with workbook:
+        shared_strings: list[str] = []
+        try:
+            shared_root = ET.fromstring(workbook.read("xl/sharedStrings.xml"))
+            shared_strings = ["".join(node.itertext()) for node in shared_root.findall(".//{*}si")]
+        except (KeyError, ET.ParseError):
+            shared_strings = []
+
+        try:
+            workbook_root = ET.fromstring(workbook.read("xl/workbook.xml"))
+        except (KeyError, ET.ParseError):
+            return []
+
+        rel_map: dict[str, str] = {}
+        try:
+            rel_root = ET.fromstring(workbook.read("xl/_rels/workbook.xml.rels"))
+            for rel in rel_root.findall(".//{*}Relationship"):
+                rel_id = rel.attrib.get("Id")
+                target = rel.attrib.get("Target")
+                if rel_id and target:
+                    rel_map[rel_id] = target
+        except (KeyError, ET.ParseError):
+            rel_map = {}
+
+        for sheet_index, sheet in enumerate(workbook_root.findall(".//{*}sheet"), start=1):
+            sheet_name = str(sheet.attrib.get("name") or f"Sheet{sheet_index}")
+            rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+            target = rel_map.get(rel_id or "", f"worksheets/sheet{sheet_index}.xml")
+            target = target.lstrip("/")
+            if not target.startswith("xl/"):
+                target = f"xl/{target}"
+
+            try:
+                sheet_root = ET.fromstring(workbook.read(target))
+            except (KeyError, ET.ParseError):
+                continue
+
+            matrix: list[list[str]] = []
+            for row in sheet_root.findall(".//{*}sheetData/{*}row"):
+                values: list[str] = []
+                for cell in row.findall("{*}c"):
+                    cell_type = cell.attrib.get("t")
+                    value = ""
+                    if cell_type == "s":
+                        raw_index = (cell.findtext("{*}v", default="") or "").strip()
+                        if raw_index.isdigit() and int(raw_index) < len(shared_strings):
+                            value = shared_strings[int(raw_index)]
+                    elif cell_type == "inlineStr":
+                        value = "".join("".join(node.itertext()) for node in cell.findall("{*}is/{*}t"))
+                    else:
+                        formula = (cell.findtext("{*}f") or "").strip()
+                        raw_value = (cell.findtext("{*}v", default="") or "").strip()
+                        value = f"={formula}" if formula else raw_value
+                    values.append(value)
+
+                if any(value.strip() for value in values):
+                    matrix.append(values)
+
+            if not matrix:
+                continue
+
+            if len(matrix) == 1:
+                header = [f"column_{index + 1}" for index in range(len(matrix[0]))]
+                rows = matrix
+            else:
+                header = [str(cell or "").strip() or f"column_{index + 1}" for index, cell in enumerate(matrix[0])]
+                rows = matrix[1:]
+
+            tables.append({"sheet_name": sheet_name, "header": header, "rows": rows})
+
+    return tables
+
+
 def _load_table_payload(stored_filename: str, source_path: Path, metadata_payload: dict) -> dict:
     parsed_artifact_path_raw = str((metadata_payload or {}).get("parsed_artifact_path") or "").strip()
     if parsed_artifact_path_raw:
@@ -372,17 +485,23 @@ def _load_table_payload(stored_filename: str, source_path: Path, metadata_payloa
                 pass
 
     try:
-        parsed = parse_structured_document(
-            filename=stored_filename,
-            content_bytes=source_path.read_bytes(),
-            detected_mime_type=_mime_type_for_extension(source_path.suffix.lower()) or "",
-            magic_bytes_type=None,
-        )
+        source_bytes = source_path.read_bytes()
     except OSError:
         return {}
 
+    parsed = parse_structured_document(
+        filename=stored_filename,
+        content_bytes=source_bytes,
+        detected_mime_type=_mime_type_for_extension(source_path.suffix.lower()) or "",
+        magic_bytes_type=None,
+    )
+
+    tables = list(parsed.tables or [])
+    if not tables:
+        tables = _extract_fallback_tables_from_source(source_path)
+
     return {
-        "tables": parsed.tables or [],
+        "tables": tables,
         "object_structure": parsed.object_structure or {},
     }
 
