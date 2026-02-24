@@ -609,3 +609,58 @@ class TestRagIfcActions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRagIfcActions(unittest.TestCase):
+    def test_rebuild_3d_viewer_action_rejects_non_ifc(self):
+        module = reload(app_module)
+        request = module.Rag3dActionRequest(stored_filename="demo.obj")
+
+        with patch.object(module.ingestion, "UPLOAD_DIR") as mock_upload_dir:
+            from pathlib import Path
+            from tempfile import TemporaryDirectory
+
+            with TemporaryDirectory() as tmp_dir:
+                source_path = Path(tmp_dir) / "demo.obj"
+                source_path.write_text("v 0 0 0", encoding="utf-8")
+                mock_upload_dir.__truediv__.side_effect = lambda name: Path(tmp_dir) / name
+
+                response = module.rag_action_rebuild_3d_viewer(request)
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_rebuild_3d_viewer_action_rebuilds_ifc_and_persists_metadata(self):
+        module = reload(app_module)
+        request = module.Rag3dActionRequest(stored_filename="building.ifc", provider="chatgpt")
+
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            upload_dir = base / "uploads"
+            metadata_dir = base / "metadata"
+            upload_dir.mkdir()
+            metadata_dir.mkdir()
+
+            (upload_dir / "building.ifc").write_text("ISO-10303-21;", encoding="utf-8")
+
+            def _fake_prepare(*, metadata, provider, api_key):
+                metadata["model_3d_ifc_obj_status"] = "converted"
+                metadata["model_3d_ifc_obj_path"] = str(upload_dir / "building.obj")
+                metadata["model_3d_conversion_status"] = "converted_to_glb"
+                metadata["model_3d_canonical_glb_path"] = str(base / "viewer" / "building.ifc.canonical.glb")
+                metadata["model_3d_conversion_warnings"] = []
+                metadata["model_3d_ifc_obj_warnings"] = []
+
+            with patch.object(module.ingestion, "UPLOAD_DIR", upload_dir), patch.object(
+                module.ingestion, "METADATA_DIR", metadata_dir
+            ), patch("backend.app.ingestion._prepare_3d_pipeline_artifacts", side_effect=_fake_prepare):
+                payload = module.rag_action_rebuild_3d_viewer(request)
+
+            self.assertEqual(payload["status"], "success")
+            self.assertEqual(payload["conversion_status"], "converted_to_glb")
+
+            persisted = json.loads((metadata_dir / "building.ifc.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["model_3d_ifc_obj_status"], "converted")
+            self.assertEqual(persisted["model_3d_conversion_status"], "converted_to_glb")
