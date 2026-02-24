@@ -1117,6 +1117,28 @@ def _convert_ifc_to_obj(*, source_path: Path) -> tuple[Path | None, str, list[st
 
     converter_binary = shutil.which("IFCConverter") or shutil.which("IfcConvert")
     if converter_binary is None:
+        # Fallback: try to locate a matching OBJ by filename stem in uploads/sample data.
+        stem = source_path.stem
+        normalized_stem = re.sub(r"_\d{8}T\d{6}Z$", "", stem)
+        candidate_dirs = [UPLOAD_DIR, Path("data/sample_documents")]
+        candidate_patterns = [f"{stem}.obj"]
+        if normalized_stem != stem:
+            candidate_patterns.append(f"{normalized_stem}.obj")
+
+        for base_dir in candidate_dirs:
+            for pattern in candidate_patterns:
+                for candidate in base_dir.glob(f"**/{pattern}"):
+                    if candidate.resolve() == output_path.resolve():
+                        continue
+                    if not candidate.exists() or candidate.stat().st_size <= 0:
+                        continue
+                    try:
+                        shutil.copyfile(candidate, output_path)
+                    except OSError:
+                        continue
+                    warnings.append(f"IFC converter missing; used fallback OBJ sidecar from {candidate}.")
+                    return output_path, "fallback_obj_sidecar", warnings
+
         warnings.append("IFCConverter/IfcConvert is not available; IFC viewer fallback remains limited.")
         return None, "converter_missing", warnings
 
