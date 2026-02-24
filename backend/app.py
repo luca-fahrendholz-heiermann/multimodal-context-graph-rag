@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 import re
 import json
+import sys
+import subprocess
+import importlib.util
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -117,6 +120,38 @@ class RagTableFilterRequest(BaseModel):
     classification: str | None = None
     api_key: str | None = None
     provider: str | None = None
+
+
+class Rag3dActionRequest(BaseModel):
+    stored_filename: str
+    api_key: str | None = None
+    provider: str | None = None
+
+
+class Open3dViewRequest(BaseModel):
+    stored_filename: str
+
+
+def _launch_open3d_ply_viewer(source_path: Path) -> tuple[bool, str]:
+    source = str(source_path)
+    script = (
+        "import open3d as o3d\n"
+        f"pcd = o3d.io.read_point_cloud(r'''{source}''')\n"
+        "if pcd.is_empty():\n"
+        "    raise RuntimeError('PLY could not be loaded or contains no points.')\n"
+        "o3d.visualization.draw_geometries([pcd], window_name='PLY Viewer')\n"
+    )
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        return False, str(exc)
+
+    return True, f"launched:{source_path}"
 
 
 class CreateGraphRequest(BaseModel):
@@ -995,6 +1030,141 @@ def rag_store_overview_filter(request: RagTableFilterRequest):
             "documents": documents,
         },
     }
+
+
+@app.post("/rag/actions/rebuild-3d-viewer")
+def rag_action_rebuild_3d_viewer(request: Rag3dActionRequest):
+    stored_filename = (request.stored_filename or "").strip()
+    if not stored_filename:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "stored_filename is required."},
+        )
+
+    source_path = ingestion.UPLOAD_DIR / stored_filename
+    if not source_path.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"status": "warning", "message": "Stored source document was not found.", "stored_filename": stored_filename},
+        )
+
+    extension = source_path.suffix.lower()
+    if extension != ".ifc":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Action currently supports IFC files only.",
+                "stored_filename": stored_filename,
+                "extension": extension,
+            },
+        )
+
+    metadata_path = ingestion.METADATA_DIR / f"{stored_filename}.json"
+    metadata_payload: dict = {}
+    if metadata_path.exists():
+        try:
+            candidate = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if isinstance(candidate, dict):
+                metadata_payload = candidate
+        except (json.JSONDecodeError, OSError):
+            metadata_payload = {}
+
+    metadata_payload["stored_filename"] = stored_filename
+    metadata_payload["filename"] = str(metadata_payload.get("filename") or stored_filename)
+    metadata_payload["detected_mime_type"] = str(
+        metadata_payload.get("detected_mime_type") or "model/ifc"
+    )
+
+    selected_provider = (request.provider or "chatgpt").strip().lower()
+    try:
+        ingestion._prepare_3d_pipeline_artifacts(
+            metadata=metadata_payload,
+            provider=selected_provider,
+            api_key=request.api_key,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Could not rebuild IFC viewer artifacts: {exc}",
+                "stored_filename": stored_filename,
+            },
+        )
+
+    try:
+        metadata_path.write_text(
+            json.dumps(metadata_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": "Viewer artifacts were created but metadata could not be persisted.",
+                "stored_filename": stored_filename,
+            },
+        )
+
+    conversion_status = str(metadata_payload.get("model_3d_conversion_status") or "")
+    if conversion_status not in {"converted_to_glb", "passthrough_glb"}:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "warning",
+                "message": "IFC rebuild completed but viewer-ready GLB is not available.",
+                "stored_filename": stored_filename,
+                "ifc_obj_status": metadata_payload.get("model_3d_ifc_obj_status"),
+                "conversion_status": conversion_status or None,
+                "conversion_warnings": metadata_payload.get("model_3d_conversion_warnings") or [],
+                "ifc_obj_warnings": metadata_payload.get("model_3d_ifc_obj_warnings") or [],
+            },
+        )
+
+    return {
+        "status": "success",
+        "message": "IFC viewer artifacts rebuilt.",
+        "stored_filename": stored_filename,
+        "ifc_obj_status": metadata_payload.get("model_3d_ifc_obj_status"),
+        "ifc_obj_path": metadata_payload.get("model_3d_ifc_obj_path"),
+        "conversion_status": conversion_status,
+        "canonical_glb_path": metadata_payload.get("model_3d_canonical_glb_path"),
+        "conversion_warnings": metadata_payload.get("model_3d_conversion_warnings") or [],
+        "ifc_obj_warnings": metadata_payload.get("model_3d_ifc_obj_warnings") or [],
+    }
+
+
+
+
+@app.post("/documents/open3d-view")
+def open3d_view_document(request: Open3dViewRequest):
+    normalized = (request.stored_filename or "").strip()
+    if not normalized:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "stored_filename is required."})
+
+    source_path = ingestion.UPLOAD_DIR / normalized
+    if not source_path.exists():
+        return JSONResponse(status_code=404, content={"status": "warning", "message": "Stored source document was not found."})
+
+    if source_path.suffix.lower() != ".ply":
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Open3D viewer action supports .ply only."})
+
+    if importlib.util.find_spec("open3d") is None:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Open3D is not installed in backend environment."},
+        )
+
+    launched, detail = _launch_open3d_ply_viewer(source_path.resolve())
+    if not launched:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Could not launch Open3D viewer: {detail}"},
+        )
+
+    return {"status": "success", "message": f"Open3D viewer launch triggered: {detail}", "stored_filename": normalized}
 
 
 @app.get("/mcp/tools/list")
