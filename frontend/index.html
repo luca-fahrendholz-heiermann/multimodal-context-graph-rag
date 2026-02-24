@@ -1362,7 +1362,7 @@
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#39;");
 
-      const buildThreeViewerHtml = (sourceUrl, storedFilename, sourceExtension) => {
+      const buildModelViewerHtml = (sourceUrl, storedFilename, sourceExtension) => {
         const safeUrl = JSON.stringify(sourceUrl);
         const safeName = escapeHtml(storedFilename);
         const safeExt = JSON.stringify(sourceExtension || "");
@@ -1370,350 +1370,70 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <style>
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1020; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
-      #viewer { width: 100%; height: 100%; }
       #status { position: absolute; top: 8px; left: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; max-width: 85%; }
-      #hint { position: absolute; right: 8px; bottom: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+      model-viewer { width: 100%; height: 100%; background: #0b1020; }
+      .hidden { display: none; }
+      .hint { position: absolute; right: 8px; bottom: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+      .fallback { padding: 16px; line-height: 1.4; }
     </style>
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.1.0/model-viewer.min.js"><\/script>
   </head>
   <body>
     <div id="status">Loading 3D model: ${safeName}</div>
-    <div id="hint">Drag: rotate · Wheel: zoom · Right-drag: pan</div>
-    <div id="viewer"></div>
-    <script type="module">
+    <div id="hint" class="hint">Drag: rotate · Wheel: zoom · Pinch: zoom</div>
+    <model-viewer
+      id="viewer"
+      src=${safeUrl}
+      alt=${JSON.stringify("3D model preview for " + storedFilename)}
+      camera-controls
+      touch-action="pan-y"
+      shadow-intensity="1"
+      exposure="1"
+      loading="eager"
+      reveal="auto"
+    ></model-viewer>
+    <div id="fallback" class="fallback hidden">
+      Model-Viewer konnte nicht geladen werden oder das Modellformat wird nicht unterstützt. Bitte Datei herunterladen.
+    </div>
+
+    <script>
       const status = document.getElementById('status');
-      const container = document.getElementById('viewer');
-      const sourceUrl = ${safeUrl};
+      const viewer = document.getElementById('viewer');
+      const fallback = document.getElementById('fallback');
       const sourceExtension = ${safeExt};
+      const sourceUrl = ${safeUrl};
       const normalizedExt = String(sourceExtension || '').toLowerCase().replace(/^\./, '');
       const extFromUrl = sourceUrl.toLowerCase().split('?')[0].split('.').pop();
       const ext = normalizedExt || extFromUrl;
 
+      if (ext && !['glb', 'gltf'].includes(ext)) {
+        status.textContent = 'Viewer expects GLB/GLTF. Backend should provide canonical GLB.';
+      }
 
-      const renderObjFallback = async (url) => {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error('OBJ fallback download failed: ' + response.status);
+      viewer.addEventListener('load', () => {
+        status.textContent = '3D model loaded successfully.';
+      });
+
+      viewer.addEventListener('error', () => {
+        status.textContent = 'Could not load 3D model for preview.';
+        fallback.classList.remove('hidden');
+      });
+
+      setTimeout(() => {
+        if (!customElements.get('model-viewer')) {
+          status.textContent = 'Viewer dependencies could not be loaded (offline/CSP). Please use Download.';
+          fallback.classList.remove('hidden');
         }
-
-        const text = await response.text();
-        const vertices = [];
-        const edges = [];
-        const lines = text.split(/\r?\n/);
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          if (trimmed.startsWith('v ')) {
-            const parts = trimmed.split(/\s+/);
-            if (parts.length >= 4) {
-              vertices.push([Number(parts[1]) || 0, Number(parts[2]) || 0, Number(parts[3]) || 0]);
-            }
-            continue;
-          }
-          if (trimmed.startsWith('f ')) {
-            const parts = trimmed.split(/\s+/).slice(1);
-            const idx = parts
-              .map((token) => {
-                const base = token.split('/')[0];
-                const parsed = Number(base);
-                if (!Number.isFinite(parsed) || parsed === 0) return null;
-                return parsed > 0 ? parsed - 1 : vertices.length + parsed;
-              })
-              .filter((value) => value !== null);
-            if (idx.length >= 2) {
-              for (let i = 0; i < idx.length; i += 1) {
-                const a = idx[i];
-                const b = idx[(i + 1) % idx.length];
-                if (a !== b) edges.push([a, b]);
-              }
-            }
-          }
-        }
-
-        if (vertices.length === 0 || edges.length === 0) {
-          throw new Error('OBJ fallback parser found no renderable geometry.');
-        }
-
-        let minX = Infinity, minY = Infinity, minZ = Infinity;
-        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-        for (const [x, y, z] of vertices) {
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (z < minZ) minZ = z;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
-          if (z > maxZ) maxZ = z;
-        }
-
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-        const cz = (minZ + maxZ) / 2;
-        const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
-
-        const canvas = document.createElement('canvas');
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.touchAction = 'none';
-        container.appendChild(canvas);
-        const ctx = canvas.getContext('2d');
-
-        const state = { yaw: 0.6, pitch: 0.45, scale: 1.1, panX: 0, panY: 0 };
-        let dragMode = null;
-        let lastX = 0;
-        let lastY = 0;
-
-        const resize = () => {
-          const dpr = window.devicePixelRatio || 1;
-          canvas.width = Math.max(1, Math.floor(container.clientWidth * dpr));
-          canvas.height = Math.max(1, Math.floor(container.clientHeight * dpr));
-          draw();
-        };
-
-        const project = (x, y, z, width, height) => {
-          const nx = (x - cx) / span;
-          const ny = (y - cy) / span;
-          const nz = (z - cz) / span;
-          const cosY = Math.cos(state.yaw);
-          const sinY = Math.sin(state.yaw);
-          const cosP = Math.cos(state.pitch);
-          const sinP = Math.sin(state.pitch);
-          const rx = nx * cosY - nz * sinY;
-          const rz = nx * sinY + nz * cosY;
-          const ry = ny * cosP - rz * sinP;
-          const depth = ry * sinP + rz * cosP;
-          const zoom = (Math.min(width, height) * 0.8 * state.scale);
-          const px = width / 2 + rx * zoom + state.panX;
-          const py = height / 2 - ry * zoom + state.panY;
-          return { px, py, depth };
-        };
-
-        const draw = () => {
-          const width = canvas.width;
-          const height = canvas.height;
-          ctx.clearRect(0, 0, width, height);
-          ctx.fillStyle = '#0b1020';
-          ctx.fillRect(0, 0, width, height);
-
-          const projected = vertices.map(([x, y, z]) => project(x, y, z, width, height));
-          ctx.strokeStyle = '#7dd3fc';
-          ctx.lineWidth = Math.max(1, (window.devicePixelRatio || 1));
-          ctx.beginPath();
-          for (const [a, b] of edges) {
-            const pa = projected[a];
-            const pb = projected[b];
-            if (!pa || !pb) continue;
-            ctx.moveTo(pa.px, pa.py);
-            ctx.lineTo(pb.px, pb.py);
-          }
-          ctx.stroke();
-        };
-
-        canvas.addEventListener('pointerdown', (event) => {
-          dragMode = event.button === 2 ? 'pan' : 'rotate';
-          lastX = event.clientX;
-          lastY = event.clientY;
-          canvas.setPointerCapture(event.pointerId);
-        });
-        canvas.addEventListener('pointerup', (event) => {
-          dragMode = null;
-          canvas.releasePointerCapture(event.pointerId);
-        });
-        canvas.addEventListener('pointermove', (event) => {
-          if (!dragMode) return;
-          const dx = event.clientX - lastX;
-          const dy = event.clientY - lastY;
-          lastX = event.clientX;
-          lastY = event.clientY;
-          if (dragMode === 'rotate') {
-            state.yaw += dx * 0.01;
-            state.pitch = Math.max(-1.4, Math.min(1.4, state.pitch + dy * 0.01));
-          } else {
-            state.panX += dx * (window.devicePixelRatio || 1);
-            state.panY += dy * (window.devicePixelRatio || 1);
-          }
-          draw();
-        });
-        canvas.addEventListener('wheel', (event) => {
-          event.preventDefault();
-          const delta = event.deltaY > 0 ? 0.92 : 1.08;
-          state.scale = Math.max(0.2, Math.min(8, state.scale * delta));
-          draw();
-        }, { passive: false });
-        canvas.addEventListener('contextmenu', (event) => event.preventDefault());
-        window.addEventListener('resize', resize);
-
-        resize();
-      };
-
-
-      const bootstrap = async () => {
-        let THREE;
-        let OrbitControls;
-        let OBJLoader;
-        let STLLoader;
-        let PLYLoader;
-        let GLTFLoader;
-
-        const importFirstAvailable = async (urls) => {
-          let lastError = null;
-          for (const url of urls) {
-            try {
-              return await import(url);
-            } catch (error) {
-              lastError = error;
-            }
-          }
-          throw lastError || new Error('No import URL available.');
-        };
-
-        const buildThreeUrls = (path) => [
-          'https://unpkg.com/three@0.160.1/' + path,
-          'https://cdn.jsdelivr.net/npm/three@0.160.1/' + path,
-          'https://esm.sh/three@0.160.1/' + path,
-        ];
-
-        try {
-          const [threeMod, controlsMod, objMod, stlMod, plyMod, gltfMod] = await Promise.all([
-            importFirstAvailable(buildThreeUrls('build/three.module.js')),
-            importFirstAvailable(buildThreeUrls('examples/jsm/controls/OrbitControls.js')),
-            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/OBJLoader.js')),
-            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/STLLoader.js')),
-            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/PLYLoader.js')),
-            importFirstAvailable(buildThreeUrls('examples/jsm/loaders/GLTFLoader.js')),
-          ]);
-          THREE = threeMod;
-          OrbitControls = controlsMod.OrbitControls;
-          OBJLoader = objMod.OBJLoader;
-          STLLoader = stlMod.STLLoader;
-          PLYLoader = plyMod.PLYLoader;
-          GLTFLoader = gltfMod.GLTFLoader;
-        } catch (err) {
-          console.error(err);
-          if (ext === 'obj') {
-            try {
-              await renderObjFallback(sourceUrl);
-              status.textContent = 'Offline OBJ fallback active (wireframe preview).';
-              return;
-            } catch (fallbackError) {
-              console.error(fallbackError);
-            }
-          }
-          status.textContent = 'Viewer dependencies could not be loaded (offline/CSP). OBJ has a basic fallback, otherwise use Download.';
-          return;
-        }
-
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0b1020);
-        const camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 0.01, 2000);
-        camera.position.set(2.2, 2.2, 2.2);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio || 1);
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        container.appendChild(renderer.domElement);
-
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-
-        scene.add(new THREE.HemisphereLight(0xffffff, 0x111827, 0.9));
-        const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-        dir.position.set(4, 8, 6);
-        scene.add(dir);
-        scene.add(new THREE.GridHelper(10, 10, 0x334155, 0x1f2937));
-        scene.add(new THREE.AxesHelper(2));
-
-        const fitCameraToObject = (object3d) => {
-          const box = new THREE.Box3().setFromObject(object3d);
-          const size = box.getSize(new THREE.Vector3());
-          const center = box.getCenter(new THREE.Vector3());
-          const radius = Math.max(size.x, size.y, size.z) * 0.6 || 1;
-          camera.near = Math.max(radius / 1000, 0.001);
-          camera.far = Math.max(radius * 100, 1000);
-          camera.position.set(center.x + radius * 1.8, center.y + radius * 1.3, center.z + radius * 1.8);
-          camera.lookAt(center);
-          camera.updateProjectionMatrix();
-          controls.target.copy(center);
-          controls.update();
-        };
-
-        const onLoaded = (object3d) => {
-          scene.add(object3d);
-          fitCameraToObject(object3d);
-          status.textContent = '3D model loaded successfully.';
-        };
-
-        const onError = (err) => {
-          console.error(err);
-          status.textContent = 'Could not load 3D model for preview.';
-        };
-
-        const loaderProgress = (event) => {
-          if (event && event.total > 0) {
-            const ratio = Math.min(100, Math.round((event.loaded / event.total) * 100));
-            status.textContent = 'Loading 3D model: ' + ratio + '%';
-          } else {
-            status.textContent = 'Loading 3D model...';
-          }
-        };
-
-        const makeMesh = (geometry) => {
-          geometry.computeVertexNormals();
-          return new THREE.Mesh(
-            geometry,
-            new THREE.MeshStandardMaterial({ color: 0x93c5fd, metalness: 0.1, roughness: 0.75 })
-          );
-        };
-
-        try {
-          if (ext === 'glb' || ext === 'gltf') {
-            status.textContent = 'Loading canonical GLB/GLTF...';
-            new GLTFLoader().load(sourceUrl, (gltf) => onLoaded(gltf.scene), loaderProgress, onError);
-          } else if (ext === 'obj') {
-            status.textContent = 'Loading OBJ model...';
-            new OBJLoader().load(sourceUrl, (obj) => {
-              onLoaded(obj);
-            }, loaderProgress, onError);
-          } else if (ext === 'stl') {
-            status.textContent = 'Loading STL model...';
-            new STLLoader().load(sourceUrl, (geometry) => {
-              onLoaded(makeMesh(geometry));
-            }, loaderProgress, onError);
-          } else if (ext === 'ply') {
-            status.textContent = 'Loading PLY point cloud...';
-            new PLYLoader().load(sourceUrl, (geometry) => {
-              const hasColor = !!geometry.getAttribute('color');
-              const mat = new THREE.PointsMaterial({ size: 0.02, vertexColors: hasColor, color: hasColor ? 0xffffff : 0x93c5fd });
-              onLoaded(new THREE.Points(geometry, mat));
-            }, loaderProgress, onError);
-          } else {
-            status.textContent = 'Unsupported 3D format for this viewer.';
-          }
-        } catch (err) {
-          onError(err);
-        }
-
-        const animate = () => {
-          requestAnimationFrame(animate);
-          controls.update();
-          renderer.render(scene, camera);
-        };
-        animate();
-
-        window.addEventListener('resize', () => {
-          camera.aspect = container.clientWidth / container.clientHeight;
-          camera.updateProjectionMatrix();
-          renderer.setSize(container.clientWidth, container.clientHeight);
-        });
-      };
-
-      bootstrap();
+      }, 1600);
     <\/script>
   </body>
 </html>`;
       };
 
-      const threeViewerFrameCache = new Map();
+      const modelViewerFrameCache = new Map();
 
       const renderSourceViewer = (storedFilename, sourceInfo, chunk) => {
         sourceViewer.innerHTML = "";
@@ -1817,20 +1537,20 @@
                 "Text preview could not be loaded. Use download to open the original file.";
             });
         } else if (kind === "3d") {
-          const cachedFrame = threeViewerFrameCache.get(storedFilename);
+          const cachedFrame = modelViewerFrameCache.get(storedFilename);
           const frame = cachedFrame || document.createElement("iframe");
           frame.className = "source-viewer-frame source-viewer-3d";
           frame.setAttribute("allow", "fullscreen; xr-spatial-tracking");
           frame.title = `3D Viewer ${storedFilename}`;
           const frameSource = `${storedFilename}::${viewerSourceUrl}`;
           if (!cachedFrame || frame.dataset.sourceId !== frameSource) {
-            frame.srcdoc = buildThreeViewerHtml(
+            frame.srcdoc = buildModelViewerHtml(
               viewerSourceUrl,
               storedFilename,
               sourceInfo.viewer_source_extension || sourceInfo.source_extension || "",
             );
             frame.dataset.sourceId = frameSource;
-            threeViewerFrameCache.set(storedFilename, frame);
+            modelViewerFrameCache.set(storedFilename, frame);
           }
           sourceViewer.appendChild(frame);
           sourceViewer.hidden = false;
