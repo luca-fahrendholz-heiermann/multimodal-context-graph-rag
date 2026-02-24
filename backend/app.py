@@ -5,6 +5,7 @@ import re
 import json
 import sys
 import subprocess
+import importlib.util
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -125,6 +126,10 @@ class Rag3dActionRequest(BaseModel):
     stored_filename: str
     api_key: str | None = None
     provider: str | None = None
+
+
+class Open3dViewRequest(BaseModel):
+    stored_filename: str
 
 
 def _launch_open3d_ply_viewer(source_path: Path) -> tuple[bool, str]:
@@ -1133,9 +1138,9 @@ def rag_action_rebuild_3d_viewer(request: Rag3dActionRequest):
 
 
 
-@app.post("/documents/open3d-view/{stored_filename}")
-def open3d_view_document(stored_filename: str):
-    normalized = (stored_filename or "").strip()
+@app.post("/documents/open3d-view")
+def open3d_view_document(request: Open3dViewRequest):
+    normalized = (request.stored_filename or "").strip()
     if not normalized:
         return JSONResponse(status_code=400, content={"status": "error", "message": "stored_filename is required."})
 
@@ -1146,7 +1151,13 @@ def open3d_view_document(stored_filename: str):
     if source_path.suffix.lower() != ".ply":
         return JSONResponse(status_code=400, content={"status": "error", "message": "Open3D viewer action supports .ply only."})
 
-    launched, detail = _launch_open3d_ply_viewer(source_path)
+    if importlib.util.find_spec("open3d") is None:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Open3D is not installed in backend environment."},
+        )
+
+    launched, detail = _launch_open3d_ply_viewer(source_path.resolve())
     if not launched:
         return JSONResponse(
             status_code=500,
@@ -1154,6 +1165,7 @@ def open3d_view_document(stored_filename: str):
         )
 
     return {"status": "success", "message": f"Open3D viewer launch triggered: {detail}", "stored_filename": normalized}
+
 
 @app.get("/mcp/tools/list")
 def mcp_tools_list():
