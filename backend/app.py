@@ -119,6 +119,12 @@ class RagTableFilterRequest(BaseModel):
     provider: str | None = None
 
 
+class Rag3dActionRequest(BaseModel):
+    stored_filename: str
+    api_key: str | None = None
+    provider: str | None = None
+
+
 class CreateGraphRequest(BaseModel):
     name: str | None = None
 
@@ -994,6 +1000,95 @@ def rag_store_overview_filter(request: RagTableFilterRequest):
             "total_chunks": sum(int(item.get("chunk_count") or 0) for item in documents),
             "documents": documents,
         },
+    }
+
+
+@app.post("/rag/actions/rebuild-3d-viewer")
+def rag_action_rebuild_3d_viewer(request: Rag3dActionRequest):
+    stored_filename = (request.stored_filename or "").strip()
+    if not stored_filename:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "stored_filename is required."},
+        )
+
+    source_path = ingestion.UPLOAD_DIR / stored_filename
+    if not source_path.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"status": "warning", "message": "Stored source document was not found.", "stored_filename": stored_filename},
+        )
+
+    extension = source_path.suffix.lower()
+    if extension != ".ifc":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Action currently supports IFC files only.",
+                "stored_filename": stored_filename,
+                "extension": extension,
+            },
+        )
+
+    metadata_path = ingestion.METADATA_DIR / f"{stored_filename}.json"
+    metadata_payload: dict = {}
+    if metadata_path.exists():
+        try:
+            candidate = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if isinstance(candidate, dict):
+                metadata_payload = candidate
+        except (json.JSONDecodeError, OSError):
+            metadata_payload = {}
+
+    metadata_payload["stored_filename"] = stored_filename
+    metadata_payload["filename"] = str(metadata_payload.get("filename") or stored_filename)
+    metadata_payload["detected_mime_type"] = str(
+        metadata_payload.get("detected_mime_type") or "model/ifc"
+    )
+
+    selected_provider = (request.provider or "chatgpt").strip().lower()
+    try:
+        ingestion._prepare_3d_pipeline_artifacts(
+            metadata=metadata_payload,
+            provider=selected_provider,
+            api_key=request.api_key,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Could not rebuild IFC viewer artifacts: {exc}",
+                "stored_filename": stored_filename,
+            },
+        )
+
+    try:
+        metadata_path.write_text(
+            json.dumps(metadata_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": "Viewer artifacts were created but metadata could not be persisted.",
+                "stored_filename": stored_filename,
+            },
+        )
+
+    return {
+        "status": "success",
+        "message": "IFC viewer artifacts rebuilt.",
+        "stored_filename": stored_filename,
+        "ifc_obj_status": metadata_payload.get("model_3d_ifc_obj_status"),
+        "ifc_obj_path": metadata_payload.get("model_3d_ifc_obj_path"),
+        "conversion_status": metadata_payload.get("model_3d_conversion_status"),
+        "canonical_glb_path": metadata_payload.get("model_3d_canonical_glb_path"),
+        "conversion_warnings": metadata_payload.get("model_3d_conversion_warnings") or [],
+        "ifc_obj_warnings": metadata_payload.get("model_3d_ifc_obj_warnings") or [],
     }
 
 
