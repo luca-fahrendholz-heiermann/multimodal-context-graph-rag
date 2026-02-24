@@ -1004,19 +1004,25 @@ def _prepare_3d_pipeline_artifacts(*, metadata: dict, provider: str, api_key: st
     if modality != "3d":
         return
 
+    conversion_source_path = source_path
+    conversion_extension = extension
+
     if extension == ".ifc":
         obj_path, ifc_obj_status, ifc_obj_warnings = _convert_ifc_to_obj(source_path=source_path)
         metadata["model_3d_ifc_obj_path"] = str(obj_path) if obj_path else None
         metadata["model_3d_ifc_obj_status"] = ifc_obj_status
         metadata["model_3d_ifc_obj_warnings"] = ifc_obj_warnings
+        if obj_path and obj_path.exists() and obj_path.stat().st_size > 0:
+            conversion_source_path = obj_path
+            conversion_extension = ".obj"
 
     canonical_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.canonical.glb"
     preview_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.preview.png"
 
     conversion_status, conversion_warnings, intermediate_artifact_path = _convert_3d_to_canonical_glb(
-        source_path=source_path,
+        source_path=conversion_source_path,
         canonical_path=canonical_path,
-        extension=extension,
+        extension=conversion_extension,
     )
     metadata["model_3d_conversion_status"] = conversion_status
     metadata["model_3d_conversion_warnings"] = conversion_warnings
