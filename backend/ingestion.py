@@ -1004,19 +1004,25 @@ def _prepare_3d_pipeline_artifacts(*, metadata: dict, provider: str, api_key: st
     if modality != "3d":
         return
 
+    conversion_source_path = source_path
+    conversion_extension = extension
+
     if extension == ".ifc":
         obj_path, ifc_obj_status, ifc_obj_warnings = _convert_ifc_to_obj(source_path=source_path)
         metadata["model_3d_ifc_obj_path"] = str(obj_path) if obj_path else None
         metadata["model_3d_ifc_obj_status"] = ifc_obj_status
         metadata["model_3d_ifc_obj_warnings"] = ifc_obj_warnings
+        if obj_path and obj_path.exists() and obj_path.stat().st_size > 0:
+            conversion_source_path = obj_path
+            conversion_extension = ".obj"
 
     canonical_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.canonical.glb"
     preview_path = VIEWER_ARTIFACTS_DIR / f"{stored_filename}.preview.png"
 
     conversion_status, conversion_warnings, intermediate_artifact_path = _convert_3d_to_canonical_glb(
-        source_path=source_path,
+        source_path=conversion_source_path,
         canonical_path=canonical_path,
-        extension=extension,
+        extension=conversion_extension,
     )
     metadata["model_3d_conversion_status"] = conversion_status
     metadata["model_3d_conversion_warnings"] = conversion_warnings
@@ -1111,6 +1117,28 @@ def _convert_ifc_to_obj(*, source_path: Path) -> tuple[Path | None, str, list[st
 
     converter_binary = shutil.which("IFCConverter") or shutil.which("IfcConvert")
     if converter_binary is None:
+        # Fallback: try to locate a matching OBJ by filename stem in uploads/sample data.
+        stem = source_path.stem
+        normalized_stem = re.sub(r"_\d{8}T\d{6}Z$", "", stem)
+        candidate_dirs = [UPLOAD_DIR, Path("data/sample_documents")]
+        candidate_patterns = [f"{stem}.obj"]
+        if normalized_stem != stem:
+            candidate_patterns.append(f"{normalized_stem}.obj")
+
+        for base_dir in candidate_dirs:
+            for pattern in candidate_patterns:
+                for candidate in base_dir.glob(f"**/{pattern}"):
+                    if candidate.resolve() == output_path.resolve():
+                        continue
+                    if not candidate.exists() or candidate.stat().st_size <= 0:
+                        continue
+                    try:
+                        shutil.copyfile(candidate, output_path)
+                    except OSError:
+                        continue
+                    warnings.append(f"IFC converter missing; used fallback OBJ sidecar from {candidate}.")
+                    return output_path, "fallback_obj_sidecar", warnings
+
         warnings.append("IFCConverter/IfcConvert is not available; IFC viewer fallback remains limited.")
         return None, "converter_missing", warnings
 
