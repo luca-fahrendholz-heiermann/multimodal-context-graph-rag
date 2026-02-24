@@ -529,9 +529,11 @@ class TestOpen3dAction(unittest.TestCase):
             (upload_dir / "cloud.ply").write_text("ply\nformat ascii 1.0\n", encoding="utf-8")
 
             with patch.object(module.ingestion, "UPLOAD_DIR", upload_dir), patch(
+                "backend.app.importlib.util.find_spec", return_value=object()
+            ), patch(
                 "backend.app._launch_open3d_ply_viewer", return_value=(True, "launched")
             ) as mock_launch:
-                payload = module.open3d_view_document("cloud.ply")
+                payload = module.open3d_view_document(module.Open3dViewRequest(stored_filename="cloud.ply"))
 
             self.assertEqual(payload["status"], "success")
             mock_launch.assert_called_once()
@@ -548,13 +550,35 @@ class TestOpen3dAction(unittest.TestCase):
             (upload_dir / "cloud.ply").write_text("ply\nformat ascii 1.0\n", encoding="utf-8")
 
             with patch.object(module.ingestion, "UPLOAD_DIR", upload_dir), patch(
+                "backend.app.importlib.util.find_spec", return_value=object()
+            ), patch(
                 "backend.app._launch_open3d_ply_viewer", return_value=(False, "No graphical display detected")
             ):
-                response = module.open3d_view_document("cloud.ply")
+                response = module.open3d_view_document(module.Open3dViewRequest(stored_filename="cloud.ply"))
 
             self.assertEqual(response.status_code, 500)
             payload = json.loads(response.body.decode("utf-8"))
             self.assertEqual(payload["status"], "error")
+
+    def test_open3d_view_document_returns_error_when_open3d_missing(self):
+        module = reload(app_module)
+
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp_dir:
+            upload_dir = Path(tmp_dir)
+            (upload_dir / "cloud.ply").write_text("ply\nformat ascii 1.0\n", encoding="utf-8")
+
+            with patch.object(module.ingestion, "UPLOAD_DIR", upload_dir), patch(
+                "backend.app.importlib.util.find_spec", return_value=None
+            ):
+                response = module.open3d_view_document(module.Open3dViewRequest(stored_filename="cloud.ply"))
+
+            self.assertEqual(response.status_code, 500)
+            payload = json.loads(response.body.decode("utf-8"))
+            self.assertEqual(payload["status"], "error")
+
     def test_open3d_view_document_rejects_non_ply(self):
         module = reload(app_module)
 
@@ -566,7 +590,7 @@ class TestOpen3dAction(unittest.TestCase):
             (upload_dir / "mesh.obj").write_text("v 0 0 0\n", encoding="utf-8")
 
             with patch.object(module.ingestion, "UPLOAD_DIR", upload_dir):
-                response = module.open3d_view_document("mesh.obj")
+                response = module.open3d_view_document(module.Open3dViewRequest(stored_filename="mesh.obj"))
 
             self.assertEqual(response.status_code, 400)
 

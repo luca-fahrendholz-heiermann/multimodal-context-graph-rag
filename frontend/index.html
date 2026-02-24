@@ -1548,7 +1548,11 @@
 
         if (kind === "3d" && ((sourceInfo.source_extension || "").toLowerCase() === ".ply") && !open3dLaunchAttempted.has(storedFilename)) {
           open3dLaunchAttempted.add(storedFilename);
-          fetchApi(`/documents/open3d-view/${encodedFilename}`, { method: "POST" })
+          fetchApi(`/documents/open3d-view`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stored_filename: storedFilename }),
+          })
             .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
             .then(({ ok, payload }) => {
               sourceViewerStatus.hidden = false;
