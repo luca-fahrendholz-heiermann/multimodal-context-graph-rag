@@ -2987,3 +2987,30 @@ def test_convert_ifc_to_obj_uses_converter_binary(tmp_path):
     assert output_path.suffix == ".obj"
     assert status == "converted"
     assert warnings == []
+
+
+def test_prepare_3d_pipeline_artifacts_uses_ifc_obj_for_glb_conversion(tmp_path):
+    source_path = tmp_path / "building.ifc"
+    source_path.write_text("ISO-10303-21;", encoding="utf-8")
+    obj_path = tmp_path / "building.obj"
+    obj_path.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8")
+
+    viewer_dir = tmp_path / "viewer"
+    viewer_dir.mkdir()
+
+    metadata = {
+        "stored_filename": "building.ifc",
+        "detected_mime_type": "model/ifc",
+    }
+
+    with patch.object(ingestion, "UPLOAD_DIR", tmp_path), patch.object(ingestion, "VIEWER_ARTIFACTS_DIR", viewer_dir), patch(
+        "backend.ingestion._convert_ifc_to_obj", return_value=(obj_path, "converted", [])
+    ), patch("backend.ingestion._render_3d_preview_from_glb", return_value=(ingestion._build_3d_preview_png(), [])), patch(
+        "backend.ingestion.analyze_image_bytes_with_provider",
+        return_value=SimpleNamespace(description_text="", analysis_text="", open_questions=[], meta={}),
+    ):
+        ingestion._prepare_3d_pipeline_artifacts(metadata=metadata, provider="chatgpt", api_key=None)
+
+    assert metadata["model_3d_conversion_status"] == "converted_to_glb"
+    assert metadata["model_3d_ifc_obj_path"] == str(obj_path)
+    assert Path(metadata["model_3d_canonical_glb_path"]).exists()

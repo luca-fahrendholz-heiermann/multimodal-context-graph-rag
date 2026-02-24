@@ -1374,8 +1374,8 @@
     <style>
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b1020; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
       #status { position: absolute; top: 8px; left: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; max-width: 85%; }
-      model-viewer { width: 100%; height: 100%; background: #0b1020; }
-      .hidden { display: none; }
+      model-viewer, #plyViewport { width: 100%; height: 100%; background: #0b1020; display: block; }
+      .hidden { display: none !important; }
       .hint { position: absolute; right: 8px; bottom: 8px; z-index: 10; background: rgba(15, 23, 42, 0.75); padding: 6px 8px; border-radius: 8px; font-size: 12px; }
       .fallback { padding: 16px; line-height: 1.4; }
     </style>
@@ -1395,45 +1395,123 @@
       loading="eager"
       reveal="auto"
     ></model-viewer>
+    <canvas id="plyViewport" class="hidden"></canvas>
     <div id="fallback" class="fallback hidden">
-      Model-Viewer konnte nicht geladen werden oder das Modellformat wird nicht unterstützt. Bitte Datei herunterladen.
+      3D preview konnte nicht geladen werden. Bitte Datei herunterladen.
     </div>
 
-    <script>
+    <script type="module">
       const status = document.getElementById('status');
       const viewer = document.getElementById('viewer');
       const fallback = document.getElementById('fallback');
+      const plyViewport = document.getElementById('plyViewport');
       const sourceExtension = ${safeExt};
       const sourceUrl = ${safeUrl};
       const normalizedExt = String(sourceExtension || '').toLowerCase().replace(/^\./, '');
       const extFromUrl = sourceUrl.toLowerCase().split('?')[0].split('.').pop();
       const ext = normalizedExt || extFromUrl;
 
-      if (ext && !['glb', 'gltf'].includes(ext)) {
-        status.textContent = 'Viewer expects GLB/GLTF. Backend should provide canonical GLB.';
-      }
-
-      viewer.addEventListener('load', () => {
-        status.textContent = '3D model loaded successfully.';
-      });
-
-      viewer.addEventListener('error', () => {
-        status.textContent = 'Could not load 3D model for preview.';
+      const showFallback = (message) => {
+        status.textContent = message;
         fallback.classList.remove('hidden');
-      });
+      };
 
-      setTimeout(() => {
-        if (!customElements.get('model-viewer')) {
-          status.textContent = 'Viewer dependencies could not be loaded (offline/CSP). Please use Download.';
-          fallback.classList.remove('hidden');
+      if (ext === 'ply') {
+        viewer.classList.add('hidden');
+        plyViewport.classList.remove('hidden');
+        try {
+          const THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
+          const { OrbitControls } = await import('https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+          const { PLYLoader } = await import('https://unpkg.com/three@0.160.0/examples/jsm/loaders/PLYLoader.js');
+
+          const renderer = new THREE.WebGLRenderer({ canvas: plyViewport, antialias: true });
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+          const scene = new THREE.Scene();
+          scene.background = new THREE.Color(0x0b1020);
+
+          const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
+          camera.position.set(1, 1, 1);
+
+          const controls = new OrbitControls(camera, renderer.domElement);
+          controls.enableDamping = true;
+
+          const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+          scene.add(ambient);
+          const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+          dir.position.set(3, 5, 2);
+          scene.add(dir);
+
+          const resize = () => {
+            const w = window.innerWidth || 640;
+            const h = window.innerHeight || 480;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h, false);
+          };
+          window.addEventListener('resize', resize);
+          resize();
+
+          const geometry = await new Promise((resolve, reject) => {
+            new PLYLoader().load(sourceUrl, resolve, undefined, reject);
+          });
+          geometry.computeBoundingSphere();
+
+          const hasColor = !!geometry.getAttribute('color');
+          const material = new THREE.PointsMaterial({
+            size: 0.02,
+            vertexColors: hasColor,
+            color: hasColor ? 0xffffff : 0x7dd3fc,
+          });
+          const points = new THREE.Points(geometry, material);
+          scene.add(points);
+
+          const sphere = geometry.boundingSphere;
+          const radius = Math.max(sphere?.radius || 1, 0.001);
+          controls.target.copy(sphere?.center || new THREE.Vector3());
+          camera.position.copy(controls.target).add(new THREE.Vector3(radius * 2.3, radius * 1.6, radius * 2.3));
+          camera.near = radius / 100;
+          camera.far = radius * 100;
+          camera.updateProjectionMatrix();
+          controls.update();
+
+          status.textContent = 'PLY point cloud loaded.';
+
+          const animate = () => {
+            controls.update();
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+          };
+          animate();
+        } catch (err) {
+          showFallback('Could not load PLY preview (three.js dependency or file parse failed).');
         }
-      }, 1600);
+      } else {
+        if (ext && !['glb', 'gltf'].includes(ext)) {
+          status.textContent = 'Viewer expects GLB/GLTF. Backend should provide canonical GLB.';
+        }
+
+        viewer.addEventListener('load', () => {
+          status.textContent = '3D model loaded successfully.';
+        });
+
+        viewer.addEventListener('error', () => {
+          showFallback('Could not load 3D model for preview.');
+        });
+
+        setTimeout(() => {
+          if (!customElements.get('model-viewer')) {
+            showFallback('Viewer dependencies could not be loaded (offline/CSP). Please use Download.');
+          }
+        }, 1600);
+      }
     <\/script>
   </body>
 </html>`;
       };
 
       const modelViewerFrameCache = new Map();
+      const open3dLaunchAttempted = new Set();
 
       const renderSourceViewer = (storedFilename, sourceInfo, chunk) => {
         sourceViewer.innerHTML = "";
@@ -1449,6 +1527,7 @@
         }
 
         const kind = sourceInfo.viewer_source_kind || sourceInfo.source_kind;
+        const viewerExtension = (sourceInfo.viewer_source_extension || sourceInfo.source_extension || "").toLowerCase();
         const encodedFilename = encodeURIComponent(storedFilename);
         const sourceUrl = apiPath(`/documents/source-file/${encodedFilename}`);
         const viewerSourceUrl = apiPath(`/documents/source-file/${encodedFilename}?viewer=1`);
@@ -1466,6 +1545,27 @@
           anchor.click();
           anchor.remove();
         };
+
+        if (kind === "3d" && ((sourceInfo.source_extension || "").toLowerCase() === ".ply") && !open3dLaunchAttempted.has(storedFilename)) {
+          open3dLaunchAttempted.add(storedFilename);
+          fetchApi(`/documents/open3d-view`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stored_filename: storedFilename }),
+          })
+            .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
+            .then(({ ok, payload }) => {
+              sourceViewerStatus.hidden = false;
+              sourceViewerStatus.textContent = ok
+                ? "Open3D window launch triggered for PLY."
+                : payload?.message || "Could not launch Open3D viewer for PLY.";
+            })
+            .catch(() => {
+              sourceViewerStatus.hidden = false;
+              sourceViewerStatus.textContent =
+                "Could not launch Open3D viewer for PLY.";
+            });
+        }
 
         if (kind === "pdf") {
           const frame = document.createElement("iframe");
@@ -1827,6 +1927,49 @@
         }
       };
 
+      const rebuildIfcViewerFromRag = async (storedFilename) => {
+        if (!storedFilename) return;
+        const rebuildButton = ragDbTableBody.querySelector(
+          `.rag-rebuild-3d-btn[data-stored-filename="${CSS.escape(storedFilename)}"]`,
+        );
+        if (rebuildButton) rebuildButton.disabled = true;
+        setStatus(ragDbStatus, `Rebuilding IFC viewer artifacts for ${storedFilename}...`, "neutral");
+
+        try {
+          const response = await fetchApi("/rag/actions/rebuild-3d-viewer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              stored_filename: storedFilename,
+              provider: getSelectedProvider(),
+              api_key: apiKey.value.trim() || null,
+            }),
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            setStatus(
+              ragDbStatus,
+              payload.message || "Could not rebuild IFC viewer artifacts.",
+              "error",
+            );
+            return;
+          }
+          const statusText = payload.conversion_status
+            ? ` (${payload.conversion_status})`
+            : "";
+          setStatus(
+            ragDbStatus,
+            `IFC viewer artifacts rebuilt for ${storedFilename}${statusText}.`,
+            "success",
+          );
+          await applyRagDbFiltersRequest();
+        } catch {
+          setStatus(ragDbStatus, "Could not rebuild IFC viewer artifacts.", "error");
+        } finally {
+          if (rebuildButton) rebuildButton.disabled = false;
+        }
+      };
+
       const renderRagDbOverview = (overview) => {
         state.ragOverviewCache = overview || null;
         const docs = overview?.documents || [];
@@ -1895,7 +2038,18 @@
               ? "Classify document now"
               : "Classify available after successful LLM connection check.";
 
-          actionCell.append(openButton, downloadButton, classifyButton);
+          const rebuild3dButton = document.createElement("button");
+          rebuild3dButton.type = "button";
+          rebuild3dButton.className = "secondary rag-rebuild-3d-btn";
+          rebuild3dButton.textContent = "Rebuild IFC 3D";
+          rebuild3dButton.dataset.storedFilename = storedFilename;
+          const isIfc = storedFilename.toLowerCase().endsWith(".ifc");
+          rebuild3dButton.hidden = !isIfc;
+          rebuild3dButton.title = isIfc
+            ? "Run IFC -> OBJ -> GLB conversion now for existing uploads"
+            : "Available for IFC files only.";
+
+          actionCell.append(openButton, downloadButton, classifyButton, rebuild3dButton);
           row.appendChild(actionCell);
           ragDbTableBody.appendChild(row);
         });
@@ -1948,6 +2102,16 @@
               event.stopPropagation();
               if (button.disabled) return;
               await classifyDocumentFromRag(button.dataset.storedFilename || "");
+            });
+          },
+        );
+
+        [...ragDbTableBody.querySelectorAll(".rag-rebuild-3d-btn")].forEach(
+          (button) => {
+            button.addEventListener("click", async (event) => {
+              event.stopPropagation();
+              if (button.hidden || button.disabled) return;
+              await rebuildIfcViewerFromRag(button.dataset.storedFilename || "");
             });
           },
         );
