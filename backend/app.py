@@ -128,20 +128,36 @@ class Rag3dActionRequest(BaseModel):
 
 
 def _launch_open3d_ply_viewer(source_path: Path) -> tuple[bool, str]:
+    if sys.platform.startswith("linux") and not (
+        os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")
+    ):
+        return False, "No graphical display detected (DISPLAY/WAYLAND_DISPLAY missing)."
+
     script = (
         "import open3d as o3d; "
         f"pcd=o3d.io.read_point_cloud(r'{str(source_path)}'); "
         "o3d.visualization.draw_geometries([pcd], window_name='PLY Viewer')"
     )
     try:
-        subprocess.Popen(
+        process = subprocess.Popen(
             [sys.executable, "-c", script],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
             start_new_session=True,
         )
     except Exception as exc:
         return False, str(exc)
+
+    try:
+        stdout, stderr = process.communicate(timeout=1.0)
+    except subprocess.TimeoutExpired:
+        return True, "launched"
+
+    if process.returncode not in {0, None}:
+        details = (stderr or stdout or "open3d process exited early").strip()
+        return False, details
+
     return True, "launched"
 
 
@@ -1149,7 +1165,7 @@ def open3d_view_document(stored_filename: str):
             content={"status": "error", "message": f"Could not launch Open3D viewer: {detail}"},
         )
 
-    return {"status": "success", "message": "Open3D viewer launch triggered.", "stored_filename": normalized}
+    return {"status": "success", "message": f"Open3D viewer launch triggered: {detail}", "stored_filename": normalized}
 
 @app.get("/mcp/tools/list")
 def mcp_tools_list():
