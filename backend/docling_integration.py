@@ -1094,7 +1094,8 @@ def get_source_document_info(stored_filename: str) -> SourceDocumentInfoResult:
             except Exception:
                 canonical_glb_raw = ""
             conversion_status = str((metadata_payload or {}).get("model_3d_conversion_status") or "")
-            if canonical_glb_raw:
+            prefer_obj_sidecar_for_ifc = extension == ".ifc" and viewer_source_extension == ".obj"
+            if canonical_glb_raw and not prefer_obj_sidecar_for_ifc:
                 canonical_glb_path = Path(canonical_glb_raw)
                 if canonical_glb_path.exists() and (not conversion_status or conversion_status in {"converted_to_glb", "passthrough_glb"}) and _is_valid_glb_file(canonical_glb_path):
                     viewer_source_path = canonical_glb_path
