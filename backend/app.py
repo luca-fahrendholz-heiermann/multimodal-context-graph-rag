@@ -128,37 +128,25 @@ class Rag3dActionRequest(BaseModel):
 
 
 def _launch_open3d_ply_viewer(source_path: Path) -> tuple[bool, str]:
-    if sys.platform.startswith("linux") and not (
-        os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")
-    ):
-        return False, "No graphical display detected (DISPLAY/WAYLAND_DISPLAY missing)."
-
+    source = str(source_path)
     script = (
-        "import open3d as o3d; "
-        f"pcd=o3d.io.read_point_cloud(r'{str(source_path)}'); "
-        "o3d.visualization.draw_geometries([pcd], window_name='PLY Viewer')"
+        "import open3d as o3d\n"
+        f"pcd = o3d.io.read_point_cloud(r'''{source}''')\n"
+        "if pcd.is_empty():\n"
+        "    raise RuntimeError('PLY could not be loaded or contains no points.')\n"
+        "o3d.visualization.draw_geometries([pcd], window_name='PLY Viewer')\n"
     )
     try:
-        process = subprocess.Popen(
+        subprocess.Popen(
             [sys.executable, "-c", script],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
     except Exception as exc:
         return False, str(exc)
 
-    try:
-        stdout, stderr = process.communicate(timeout=1.0)
-    except subprocess.TimeoutExpired:
-        return True, "launched"
-
-    if process.returncode not in {0, None}:
-        details = (stderr or stdout or "open3d process exited early").strip()
-        return False, details
-
-    return True, "launched"
+    return True, f"launched:{source_path}"
 
 
 class CreateGraphRequest(BaseModel):

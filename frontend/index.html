@@ -1546,7 +1546,7 @@
           anchor.remove();
         };
 
-        if (kind === "3d" && viewerExtension === ".ply" && !open3dLaunchAttempted.has(storedFilename)) {
+        if (kind === "3d" && ((sourceInfo.source_extension || "").toLowerCase() === ".ply") && !open3dLaunchAttempted.has(storedFilename)) {
           open3dLaunchAttempted.add(storedFilename);
           fetchApi(`/documents/open3d-view/${encodedFilename}`, { method: "POST" })
             .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
