@@ -1511,6 +1511,7 @@
       };
 
       const modelViewerFrameCache = new Map();
+      const open3dLaunchAttempted = new Set();
 
       const renderSourceViewer = (storedFilename, sourceInfo, chunk) => {
         sourceViewer.innerHTML = "";
@@ -1526,6 +1527,7 @@
         }
 
         const kind = sourceInfo.viewer_source_kind || sourceInfo.source_kind;
+        const viewerExtension = (sourceInfo.viewer_source_extension || sourceInfo.source_extension || "").toLowerCase();
         const encodedFilename = encodeURIComponent(storedFilename);
         const sourceUrl = apiPath(`/documents/source-file/${encodedFilename}`);
         const viewerSourceUrl = apiPath(`/documents/source-file/${encodedFilename}?viewer=1`);
@@ -1543,6 +1545,23 @@
           anchor.click();
           anchor.remove();
         };
+
+        if (kind === "3d" && viewerExtension === ".ply" && !open3dLaunchAttempted.has(storedFilename)) {
+          open3dLaunchAttempted.add(storedFilename);
+          fetchApi(`/documents/open3d-view/${encodedFilename}`, { method: "POST" })
+            .then((response) => response.json().then((payload) => ({ ok: response.ok, payload })))
+            .then(({ ok, payload }) => {
+              sourceViewerStatus.hidden = false;
+              sourceViewerStatus.textContent = ok
+                ? "Open3D window launch triggered for PLY."
+                : payload?.message || "Could not launch Open3D viewer for PLY.";
+            })
+            .catch(() => {
+              sourceViewerStatus.hidden = false;
+              sourceViewerStatus.textContent =
+                "Could not launch Open3D viewer for PLY.";
+            });
+        }
 
         if (kind === "pdf") {
           const frame = document.createElement("iframe");

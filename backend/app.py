@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 import json
+import sys
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -123,6 +125,24 @@ class Rag3dActionRequest(BaseModel):
     stored_filename: str
     api_key: str | None = None
     provider: str | None = None
+
+
+def _launch_open3d_ply_viewer(source_path: Path) -> tuple[bool, str]:
+    script = (
+        "import open3d as o3d; "
+        f"pcd=o3d.io.read_point_cloud(r'{str(source_path)}'); "
+        "o3d.visualization.draw_geometries([pcd], window_name='PLY Viewer')"
+    )
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    return True, "launched"
 
 
 class CreateGraphRequest(BaseModel):
@@ -1079,18 +1099,57 @@ def rag_action_rebuild_3d_viewer(request: Rag3dActionRequest):
             },
         )
 
+    conversion_status = str(metadata_payload.get("model_3d_conversion_status") or "")
+    if conversion_status not in {"converted_to_glb", "passthrough_glb"}:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "warning",
+                "message": "IFC rebuild completed but viewer-ready GLB is not available.",
+                "stored_filename": stored_filename,
+                "ifc_obj_status": metadata_payload.get("model_3d_ifc_obj_status"),
+                "conversion_status": conversion_status or None,
+                "conversion_warnings": metadata_payload.get("model_3d_conversion_warnings") or [],
+                "ifc_obj_warnings": metadata_payload.get("model_3d_ifc_obj_warnings") or [],
+            },
+        )
+
     return {
         "status": "success",
         "message": "IFC viewer artifacts rebuilt.",
         "stored_filename": stored_filename,
         "ifc_obj_status": metadata_payload.get("model_3d_ifc_obj_status"),
         "ifc_obj_path": metadata_payload.get("model_3d_ifc_obj_path"),
-        "conversion_status": metadata_payload.get("model_3d_conversion_status"),
+        "conversion_status": conversion_status,
         "canonical_glb_path": metadata_payload.get("model_3d_canonical_glb_path"),
         "conversion_warnings": metadata_payload.get("model_3d_conversion_warnings") or [],
         "ifc_obj_warnings": metadata_payload.get("model_3d_ifc_obj_warnings") or [],
     }
 
+
+
+
+@app.post("/documents/open3d-view/{stored_filename}")
+def open3d_view_document(stored_filename: str):
+    normalized = (stored_filename or "").strip()
+    if not normalized:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "stored_filename is required."})
+
+    source_path = ingestion.UPLOAD_DIR / normalized
+    if not source_path.exists():
+        return JSONResponse(status_code=404, content={"status": "warning", "message": "Stored source document was not found."})
+
+    if source_path.suffix.lower() != ".ply":
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Open3D viewer action supports .ply only."})
+
+    launched, detail = _launch_open3d_ply_viewer(source_path)
+    if not launched:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Could not launch Open3D viewer: {detail}"},
+        )
+
+    return {"status": "success", "message": "Open3D viewer launch triggered.", "stored_filename": normalized}
 
 @app.get("/mcp/tools/list")
 def mcp_tools_list():
