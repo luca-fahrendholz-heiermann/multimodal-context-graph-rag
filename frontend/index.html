@@ -1416,13 +1416,14 @@
         fallback.classList.remove('hidden');
       };
 
-      if (ext === 'ply') {
+      if (ext === 'ply' || ext === 'obj') {
         viewer.classList.add('hidden');
         plyViewport.classList.remove('hidden');
         try {
           const THREE = await import('https://unpkg.com/three@0.160.0/build/three.module.js');
           const { OrbitControls } = await import('https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js');
           const { PLYLoader } = await import('https://unpkg.com/three@0.160.0/examples/jsm/loaders/PLYLoader.js');
+          const { OBJLoader } = await import('https://unpkg.com/three@0.160.0/examples/jsm/loaders/OBJLoader.js');
 
           const renderer = new THREE.WebGLRenderer({ canvas: plyViewport, antialias: true });
           renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -1452,30 +1453,48 @@
           window.addEventListener('resize', resize);
           resize();
 
-          const geometry = await new Promise((resolve, reject) => {
-            new PLYLoader().load(sourceUrl, resolve, undefined, reject);
-          });
-          geometry.computeBoundingSphere();
+          let radius = 1;
+          if (ext === 'ply') {
+            const geometry = await new Promise((resolve, reject) => {
+              new PLYLoader().load(sourceUrl, resolve, undefined, reject);
+            });
+            geometry.computeBoundingSphere();
 
-          const hasColor = !!geometry.getAttribute('color');
-          const material = new THREE.PointsMaterial({
-            size: 0.02,
-            vertexColors: hasColor,
-            color: hasColor ? 0xffffff : 0x7dd3fc,
-          });
-          const points = new THREE.Points(geometry, material);
-          scene.add(points);
+            const hasColor = !!geometry.getAttribute('color');
+            const material = new THREE.PointsMaterial({
+              size: 0.02,
+              vertexColors: hasColor,
+              color: hasColor ? 0xffffff : 0x7dd3fc,
+            });
+            const points = new THREE.Points(geometry, material);
+            scene.add(points);
 
-          const sphere = geometry.boundingSphere;
-          const radius = Math.max(sphere?.radius || 1, 0.001);
-          controls.target.copy(sphere?.center || new THREE.Vector3());
+            const sphere = geometry.boundingSphere;
+            radius = Math.max(sphere?.radius || 1, 0.001);
+            controls.target.copy(sphere?.center || new THREE.Vector3());
+            status.textContent = 'PLY point cloud loaded.';
+          } else {
+            const object = await new Promise((resolve, reject) => {
+              new OBJLoader().load(sourceUrl, resolve, undefined, reject);
+            });
+            object.traverse((child) => {
+              if (child.isMesh && child.material) {
+                child.material.side = THREE.DoubleSide;
+              }
+            });
+            scene.add(object);
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            radius = Math.max(size.length() / 2, 0.001);
+            controls.target.copy(center);
+            status.textContent = 'OBJ mesh loaded.';
+          }
           camera.position.copy(controls.target).add(new THREE.Vector3(radius * 2.3, radius * 1.6, radius * 2.3));
           camera.near = radius / 100;
           camera.far = radius * 100;
           camera.updateProjectionMatrix();
           controls.update();
-
-          status.textContent = 'PLY point cloud loaded.';
 
           const animate = () => {
             controls.update();

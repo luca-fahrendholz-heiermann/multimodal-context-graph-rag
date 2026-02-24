@@ -2989,6 +2989,24 @@ def test_convert_ifc_to_obj_uses_converter_binary(tmp_path):
     assert warnings == []
 
 
+
+
+def test_convert_ifc_to_obj_uses_sidecar_fallback_when_converter_missing(tmp_path):
+    source_path = tmp_path / "building_model_20260224T131601Z.ifc"
+    source_path.write_text("ISO-10303-21;", encoding="utf-8")
+    sidecar_path = tmp_path / "building_model.obj"
+    sidecar_path.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8")
+
+    with patch.object(ingestion, "UPLOAD_DIR", tmp_path), patch("backend.ingestion.shutil.which", return_value=None):
+        output_path, status, warnings = ingestion._convert_ifc_to_obj(source_path=source_path)
+
+    assert output_path is not None
+    assert output_path.exists()
+    assert output_path.suffix == ".obj"
+    assert status == "fallback_obj_sidecar"
+    assert any("fallback OBJ sidecar" in warning for warning in warnings)
+
+
 def test_prepare_3d_pipeline_artifacts_uses_ifc_obj_for_glb_conversion(tmp_path):
     source_path = tmp_path / "building.ifc"
     source_path.write_text("ISO-10303-21;", encoding="utf-8")
